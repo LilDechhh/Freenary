@@ -1,5 +1,6 @@
 import { PrismaService } from './prisma.service';
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Post, Body } from '@nestjs/common'; // <-- Ajout de Post et Body
+import YahooFinance from 'yahoo-finance2';
 
 @Controller('wealth')
 export class WealthController {
@@ -156,6 +157,22 @@ export class WealthController {
       where: { category: category.toLowerCase() },
     });
 
+    const rawTransactions = await this.prisma.transaction.findMany({
+      where: { category: category.toLowerCase() },
+      orderBy: { date: 'desc' },
+      include: { asset: true }, // <-- Demande à Prisma de joindre la table Asset !
+    });
+
+    // On formate un peu pour que ton Frontend s'y retrouve facilement
+    const formattedTransactions = rawTransactions.map((tx) => ({
+      id: tx.id,
+      type: tx.type,
+      amount: tx.amount,
+      quantity: tx.quantity,
+      date: tx.date,
+      assetName: tx.asset.name, // On extrait le nom de l'actif pour l'affichage
+    }));
+
     // Récupération intelligente des prix via notre fonction
     const cryptoNames = assets.map((a) => a.name);
     const livePrices =
@@ -200,8 +217,103 @@ export class WealthController {
       title: category.toUpperCase(),
       totalValue: dynamicCategoryTotal,
       assets: mappedAssets,
-      transactions: [],
+      transactions: formattedTransactions,
     };
+  }
+
+  // --- NOUVELLE ROUTE : AJOUTER UNE TRANSACTION ---
+  @Post('transaction')
+  async addTransaction(@Body() body: any) {
+    const { type, category, asset, quantity, amount, date } = body;
+
+    let numericAmount = parseFloat(amount);
+    let numericQuantity = parseFloat(quantity) || 0;
+
+    // Pour le solde total de l'actif, on fait + ou - selon le type
+    if (type === 'vente' || type === 'retrait') {
+      numericAmount = -numericAmount;
+      numericQuantity = -numericQuantity;
+    }
+
+    const defaultUser = await this.prisma.user.findFirst();
+    if (!defaultUser) throw new Error('Aucun utilisateur trouvé.');
+
+    // 1. GESTION DE L'ACTIF (Création ou Mise à jour)
+    let currentAsset = await this.prisma.asset.findFirst({
+      where: {
+        name: { equals: asset, mode: 'insensitive' },
+        category: category,
+      },
+    });
+
+    if (currentAsset) {
+      currentAsset = await this.prisma.asset.update({
+        where: { id: currentAsset.id },
+        data: {
+          quantity: (currentAsset.quantity || 0) + numericQuantity,
+          totalValue: currentAsset.totalValue + numericAmount,
+        },
+      });
+    } else {
+      currentAsset = await this.prisma.asset.create({
+        data: {
+          name: asset,
+          category: category.toLowerCase(),
+          quantity: numericQuantity,
+          totalValue: numericAmount,
+          user: { connect: { id: defaultUser.id } },
+        },
+      });
+    }
+
+    // 2. GESTION DE L'HISTORIQUE (Graphique global)
+    const dateObj = new Date(date);
+    const months = [
+      'Jan',
+      'Fév',
+      'Mar',
+      'Avr',
+      'Mai',
+      'Juin',
+      'Juil',
+      'Août',
+      'Sept',
+      'Oct',
+      'Nov',
+      'Déc',
+    ];
+    const monthName = months[dateObj.getMonth()];
+
+    const existingHistory = await this.prisma.historicalData.findFirst({
+      where: { date: monthName },
+    });
+
+    if (existingHistory) {
+      await this.prisma.historicalData.update({
+        where: { id: existingHistory.id },
+        data: { value: existingHistory.value + numericAmount },
+      });
+    } else {
+      await this.prisma.historicalData.create({
+        data: { date: monthName, value: numericAmount },
+      });
+    }
+
+    // 3. CRÉATION DU TICKET DE CAISSE (Transaction)
+    // On relie proprement l'actif et l'utilisateur selon ton schéma Prisma !
+    await this.prisma.transaction.create({
+      data: {
+        type: type,
+        category: category.toLowerCase(),
+        amount: parseFloat(amount), // On garde la valeur absolue pour le ticket
+        quantity: parseFloat(quantity) || 0,
+        date: new Date(date),
+        asset: { connect: { id: currentAsset.id } },
+        user: { connect: { id: defaultUser.id } },
+      },
+    });
+
+    return { success: true, message: 'Transaction enregistrée avec succès !' };
   }
 
   // --- FONCTION UTILITAIRE COINGECKO ---

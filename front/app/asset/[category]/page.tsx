@@ -9,6 +9,8 @@ import {
   TrendingDown,
   History,
   Wallet,
+  ArrowDownRight,
+  ArrowUpRight,
   PieChart as PieChartIcon,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -202,12 +204,88 @@ export default function AssetDetails() {
           </TabsContent>
 
           <TabsContent value="historique" className="mt-6">
-            <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800">
-              <History className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-              <p className="text-slate-400 dark:text-slate-500 font-light">
-                Historique bientôt disponible !
-              </p>
-            </div>
+            {data.transactions && data.transactions.length > 0 ? (
+              <div className="space-y-3">
+                {data.transactions.map((tx: any, index: number) => (
+                  <motion.div
+                    key={tx.id || index}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl transition-colors"
+                  >
+                    <div className="flex items-center gap-4">
+                      {/* Icône : Vert si achat/dépôt, Rouge si vente/retrait */}
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                          tx.type.toLowerCase() === "achat" ||
+                          tx.type === "versement"
+                            ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-500"
+                            : "bg-red-50 dark:bg-red-900/30 text-red-500"
+                        }`}
+                      >
+                        {tx.type.toLowerCase() === "achat" ||
+                        tx.type === "versement" ? (
+                          <ArrowDownRight className="w-5 h-5" />
+                        ) : (
+                          <ArrowUpRight className="w-5 h-5" />
+                        )}
+                      </div>
+
+                      {/* Infos de la transaction */}
+                      <div>
+                        <p className="text-sm font-medium text-slate-800 dark:text-white">
+                          {tx.assetName}
+                        </p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 font-light mt-0.5">
+                          {new Date(tx.date).toLocaleDateString("fr-FR", {
+                            day: "numeric",
+                            month: "long",
+                            year: "numeric",
+                          })}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Montants et Quantités */}
+                    <div className="text-right">
+                      <p
+                        className={`text-sm font-medium ${
+                          tx.type === "achat" || tx.type === "versement"
+                            ? "text-emerald-500"
+                            : "text-slate-800 dark:text-white"
+                        }`}
+                      >
+                        {tx.type === "achat" || tx.type === "versement"
+                          ? "+"
+                          : "-"}
+                        {tx.amount.toLocaleString("fr-FR", {
+                          maximumFractionDigits: 2,
+                        })}{" "}
+                        €
+                      </p>
+                      {/* Affiche la quantité si elle existe et n'est pas 0 */}
+                      {tx.quantity ? (
+                        <p className="text-xs text-slate-400 dark:text-slate-500 font-light mt-0.5">
+                          {tx.type === "achat" || tx.type === "versement"
+                            ? "+"
+                            : "-"}
+                          {tx.quantity} parts
+                        </p>
+                      ) : null}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            ) : (
+              /* Le design vide s'il n'y a pas encore de transactions */
+              <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <History className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+                <p className="text-slate-400 dark:text-slate-500 font-light">
+                  Aucun historique pour le moment.
+                </p>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>

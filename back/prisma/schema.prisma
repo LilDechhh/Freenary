@@ -22,8 +22,7 @@ model Asset {
   id              String        @id @default(uuid())
   category        String        
   name            String        
-  quantity        Float?        
-  currentPrice    Float?        
+  quantity        Float?              
   totalValue      Float         
   gainLoss        Float?        
   gainLossPercent Float?        

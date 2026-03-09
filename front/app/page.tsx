@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"; // Vérifie que ce chemin est le bon chez toi
 import { useRouter } from "next/navigation";
+import AddTransactionModal from "@/components/add-transaction";
 
 // Interface pour typer les données venant du Backend
 interface WealthData {
@@ -42,6 +43,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [data, setData] = useState<WealthData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Récupération des données réelles
   useEffect(() => {
@@ -262,13 +264,18 @@ export default function Dashboard() {
         className="fixed bottom-8 right-1/2 translate-x-1/2 max-w-md w-full px-6 flex justify-end"
       >
         <button
-          onClick={handleAddTransaction}
-          // Le bouton "+" reste noir/foncé pour garder du contraste en Light, ou tu peux le mettre coloré
-          className="w-14 h-14 rounded-full bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 shadow-2xl flex items-center justify-center transition-all active:rotate-90"
+          onClick={() => setIsModalOpen(true)}
+          className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/30"
         >
-          <Plus className="w-6 h-6 text-white" strokeWidth={2} />
+          <Plus className="w-5 h-5" />
         </button>
       </motion.div>
+
+      {/* ---> LA MODALE EST ICI, BIEN À L'EXTÉRIEUR DU BOUTON <--- */}
+      <AddTransactionModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+      />
     </div>
   );
 }
