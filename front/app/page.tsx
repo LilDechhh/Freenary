@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   PieChart,
@@ -20,11 +20,10 @@ import {
   Plus,
   LogOut,
 } from "lucide-react";
-import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"; // Vérifie que ce chemin est le bon chez toi
+import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
 import { useRouter } from "next/navigation";
 import AddTransactionModal from "@/components/add-transaction";
 
-// Interface pour typer les données venant du Backend
 interface WealthData {
   totalWealth: number;
   distribution: {
@@ -45,9 +44,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Récupération des données réelles
-  useEffect(() => {
-    fetch("http://localhost:3001/wealth")
+  // NOUVEAU : On extrait la requête dans une fonction réutilisable
+  const fetchWealthData = useCallback(() => {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/wealth`)
       .then((res) => res.json())
       .then((json) => {
         setData(json);
@@ -59,8 +58,12 @@ export default function Dashboard() {
       });
   }, []);
 
+  // NOUVEAU : On utilise la fonction au montage du composant
+  useEffect(() => {
+    fetchWealthData();
+  }, [fetchWealthData]);
+
   const handleLogout = () => router.push("/");
-  const handleAddTransaction = () => router.push("/add-transaction");
 
   if (loading) {
     return (
@@ -271,10 +274,11 @@ export default function Dashboard() {
         </button>
       </motion.div>
 
-      {/* ---> LA MODALE EST ICI, BIEN À L'EXTÉRIEUR DU BOUTON <--- */}
+      {/* ---> LA MODALE EST ICI <--- */}
       <AddTransactionModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+        onSuccess={fetchWealthData} // NOUVEAU : On passe la fonction pour recharger silencieusement
       />
     </div>
   );

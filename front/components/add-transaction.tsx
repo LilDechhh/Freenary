@@ -5,14 +5,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+// NOUVEAU : Ajout de onSuccess dans les props
 interface AddTransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess: () => void;
 }
 
 export default function AddTransactionModal({
   isOpen,
   onClose,
+  onSuccess, // NOUVEAU : Récupération de la prop
 }: AddTransactionModalProps) {
   const router = useRouter();
 
@@ -21,8 +24,6 @@ export default function AddTransactionModal({
   const [amount, setAmount] = useState("");
   const [quantity, setQuantity] = useState("");
   const [asset, setAsset] = useState("");
-
-  // NOUVEAU : Champ Date (par défaut : aujourd'hui)
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
 
   const [showSuccess, setShowSuccess] = useState(false);
@@ -33,25 +34,25 @@ export default function AddTransactionModal({
     setIsLoading(true);
 
     try {
-      // 1. On envoie les données au Backend
-      // ⚠️ Note : Si tu testes sur ton téléphone, remplace 'localhost' par ton IP (ex: 192.168.1.45)
-      const response = await fetch("http://localhost:3001/wealth/transaction", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            category,
+            type,
+            asset: asset || category,
+            quantity: quantity ? parseFloat(quantity) : 0,
+            amount: parseFloat(amount),
+            date,
+          }),
         },
-        body: JSON.stringify({
-          category,
-          type,
-          asset: asset || category, // Si pas de nom d'actif (ex: Epargne), on met la catégorie
-          quantity: quantity ? parseFloat(quantity) : 0,
-          amount: parseFloat(amount),
-          date,
-        }),
-      });
+      );
 
       if (response.ok) {
-        // 2. Si c'est un succès, on affiche l'animation
         setShowSuccess(true);
 
         setTimeout(() => {
@@ -59,14 +60,13 @@ export default function AddTransactionModal({
           setIsLoading(false);
           onClose();
 
-          // On réinitialise le formulaire
           setAmount("");
           setQuantity("");
           setAsset("");
           setDate(new Date().toISOString().split("T")[0]);
 
-          // On rafraîchit la page pour voir les nouveaux chiffres !
-          window.location.reload();
+          // NOUVEAU : On met à jour l'UI de manière fluide sans recharger la page !
+          onSuccess();
         }, 1500);
       } else {
         console.error("Erreur lors de l'enregistrement");
@@ -148,20 +148,73 @@ export default function AddTransactionModal({
                   </div>
                 </div>
 
-                {/* Actif */}
-                {(category === "crypto" || category === "pea") && (
+                {/* Actif - Adapté selon la catégorie */}
+                {category === "crypto" && (
                   <div className="space-y-1.5">
                     <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
-                      Nom de l'actif
+                      Nom de la crypto
                     </label>
-                    <input
-                      type="text"
+                    <select
                       required
-                      placeholder="Ex: Bitcoin, LVMH, CW8..."
                       value={asset}
                       onChange={(e) => setAsset(e.target.value)}
                       className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
-                    />
+                    >
+                      <option value="" disabled>
+                        Sélectionnez une crypto
+                      </option>
+                      <option value="" disabled>
+                        Sélectionnez une crypto
+                      </option>
+                      <option value="Bitcoin">Bitcoin (BTC)</option>
+                      <option value="Ethereum">Ethereum (ETH)</option>
+                      <option value="Binance Coin">Binance Coin (BNB)</option>
+                      <option value="Solana">Solana (SOL)</option>
+                      <option value="Ripple">Ripple (XRP)</option>
+                      <option value="Cardano">Cardano (ADA)</option>
+                      <option value="Dogecoin">Dogecoin (DOGE)</option>
+                      <option value="Avalanche">Avalanche (AVAX)</option>
+                      <option value="Chainlink">Chainlink (LINK)</option>
+                      <option value="Polkadot">Polkadot (DOT)</option>
+                      <option value="Polygon">Polygon (MATIC)</option>
+                      <option value="Litecoin">Litecoin (LTC)</option>
+                      <option value="Shiba Inu">Shiba Inu (SHIB)</option>
+                      <option value="TRON">TRON (TRX)</option>
+                      <option value="Uniswap">Uniswap (UNI)</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Actif Bourse (PEA/CTO) */}
+                {category === "pea" && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
+                      Nom de l'Action / ETF
+                    </label>
+                    <select
+                      required
+                      value={asset}
+                      onChange={(e) => setAsset(e.target.value)}
+                      className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="" disabled>
+                        Sélectionnez un actif
+                      </option>
+                      <optgroup label="ETFs (Fonds Indexés)">
+                        <option value="CW8">Amundi MSCI World (CW8)</option>
+                        <option value="ESE">BNP S&P 500 (ESE)</option>
+                      </optgroup>
+                      <optgroup label="Actions Françaises">
+                        <option value="LVMH">LVMH</option>
+                        <option value="Air Liquide">Air Liquide</option>
+                        <option value="TotalEnergies">TotalEnergies</option>
+                        <option value="Hermes">Hermès</option>
+                        <option value="L'Oreal">L'Oréal</option>
+                      </optgroup>
+                      <optgroup label="Actions US">
+                        <option value="Apple">Apple</option>
+                      </optgroup>
+                    </select>
                   </div>
                 )}
 

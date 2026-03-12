@@ -30,6 +30,10 @@ export default function AssetDetails() {
   const [data, setData] = useState<CategoryData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  function financial(x: any) {
+    return Number.parseFloat(x).toFixed(7);
+  }
+
   const getCategoryColor = (cat: string) => {
     switch (cat.toLowerCase()) {
       case "crypto":
@@ -163,11 +167,11 @@ export default function AssetDetails() {
                       </h3>
                       {asset.currentPrice && (
                         <p className="text-xs text-slate-400 dark:text-slate-500 font-light mt-1">
-                          {asset.quantity && `${asset.quantity} × `}
+                          {`${financial(asset.quantity)} × `}
                           <span className="text-slate-600 dark:text-slate-300 font-medium">
                             {asset.currentPrice.toLocaleString("fr-FR", {
                               style: "currency",
-                              currency: "USD",
+                              currency: "EUR",
                             })}
                           </span>
                         </p>
@@ -185,18 +189,41 @@ export default function AssetDetails() {
                     </div>
                   </div>
 
-                  {/* Partie Basse : Plus ou moins-value */}
-                  <div className="flex items-center gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-                    <span
-                      className={`text-xs font-light ${asset.gainLossPercent >= 0 ? "text-emerald-500" : "text-red-500"}`}
-                    >
-                      {asset.gainLossPercent >= 0 ? "+" : ""}
-                      {asset.gainLossPercent}% ({asset.gainLoss > 0 ? "+" : ""}
-                      {asset.gainLoss.toLocaleString("fr-FR", {
-                        maximumFractionDigits: 2,
-                      })}{" "}
-                      €)
-                    </span>
+                  {/* Ligne de statistiques : PRU et Plus-value */}
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800 mt-4">
+                    {/* Bloc Gauche : PRU */}
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium mb-0.5">
+                        PRU
+                      </span>
+                      <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                        {asset.pru > 0
+                          ? `${asset.pru.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} €`
+                          : "-"}
+                      </span>
+                    </div>
+
+                    {/* Bloc Droite : Gain / Perte */}
+                    <div className="flex flex-col items-end">
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium mb-0.5">
+                        Plus-value
+                      </span>
+                      <span
+                        className={`text-xs font-medium ${
+                          asset.gainLossPercent >= 0
+                            ? "text-emerald-500"
+                            : "text-red-500"
+                        }`}
+                      >
+                        {asset.gainLossPercent >= 0 ? "+" : ""}
+                        {asset.gainLossPercent}% (
+                        {asset.gainLoss > 0 ? "+" : ""}
+                        {asset.gainLoss.toLocaleString("fr-FR", {
+                          maximumFractionDigits: 2,
+                        })}{" "}
+                        €)
+                      </span>
+                    </div>
                   </div>
                 </motion.div>
               ))}

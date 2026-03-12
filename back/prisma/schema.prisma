@@ -14,8 +14,20 @@ model User {
   name         String
   role         String        @default("MEMBER")
   createdAt    DateTime      @default(now())
+  
   assets       Asset[]       
   transactions Transaction[] 
+  wallets      Wallet[]      // <-- NOUVEAU : Un utilisateur possède plusieurs wallets
+}
+
+model Wallet {
+  id          String   @id @default(uuid())
+  name        String   // Ex: "Ledger BTC", "Solflare Principal"
+  blockchain  String   // Ex: "solana", "ethereum", "bitcoin"
+  address     String   // L'adresse publique (Ex: 5X... pour Solflare)
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Asset {

@@ -2,7 +2,6 @@
 
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
-import { Button } from "@heroui/react";
 import { Sun, Moon } from "lucide-react";
 
 export function ThemeSwitcher() {
@@ -16,11 +15,9 @@ export function ThemeSwitcher() {
   if (!mounted) return null;
 
   return (
-    <Button
-      isIconOnly
-      variant="flat"
-      onPress={() => setTheme(theme === "dark" ? "light" : "dark")}
-      className="rounded-xl bg-slate-100 dark:bg-slate-800"
+    <button
+      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
       aria-label="Changer le thème"
     >
       {theme === "dark" ? (
@@ -28,6 +25,6 @@ export function ThemeSwitcher() {
       ) : (
         <Moon className="w-5 h-5 text-slate-600" />
       )}
-    </Button>
+    </button>
   );
 }

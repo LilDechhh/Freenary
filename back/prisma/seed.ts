@@ -24,9 +24,19 @@ async function main() {
 
   // 3. Tes données Mock (Version simplifiée pour le script)
   const assetsToCreate = [
-    { name: 'Bitcoin (BTC)', category: 'crypto', quantity: 0.5, currentPrice: 85000, totalValue: 42500 },
-    { name: 'Ethereum (ETH)', category: 'crypto', quantity: 5, currentPrice: 3200, totalValue: 16000 },
-    { name: 'MSCI World', category: 'pea', quantity: 50, currentPrice: 485, totalValue: 24250 },
+    {
+      name: 'Bitcoin (BTC)',
+      category: 'crypto',
+      quantity: 0.5,
+      totalValue: 42500,
+    }, // currentPrice supprimé
+    {
+      name: 'Ethereum (ETH)',
+      category: 'crypto',
+      quantity: 5,
+      totalValue: 16000,
+    },
+    { name: 'MSCI World', category: 'pea', quantity: 50, totalValue: 24250 },
     { name: 'Livret A', category: 'epargne', totalValue: 22950 },
   ];
 
@@ -53,9 +63,11 @@ async function main() {
     data: {
       date: new Date(),
       category: 'crypto',
-      type: 'Achat',
+      type: 'achat', // Cohérence avec le frontend
       amount: 16400,
-      assetId: (await prisma.asset.findFirst({ where: { name: 'Bitcoin (BTC)' } }))!.id,
+      assetId: (await prisma.asset.findFirst({
+        where: { name: 'Bitcoin (BTC)' },
+      }))!.id,
       userId: user.id,
     },
   });
