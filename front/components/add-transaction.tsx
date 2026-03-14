@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
-
+import { toast } from "sonner";
 // NOUVEAU : Ajout de onSuccess dans les props
 interface AddTransactionModalProps {
   isOpen: boolean;
@@ -26,12 +26,21 @@ export default function AddTransactionModal({
   const [asset, setAsset] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
 
-  const [showSuccess, setShowSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+
+    // 1. NOUVEAU : Récupération du token
+    const token = localStorage.getItem("wealth_token");
+
+    if (!token) {
+      console.error("Token d'authentification manquant");
+      setIsLoading(false);
+      // Optionnel : tu pourrais rediriger vers la page de login ici
+      return;
+    }
 
     try {
       const response = await fetch(
@@ -40,6 +49,8 @@ export default function AddTransactionModal({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            // 2. NOUVEAU : On ajoute le token dans les headers
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             category,
@@ -53,23 +64,20 @@ export default function AddTransactionModal({
       );
 
       if (response.ok) {
-        setShowSuccess(true);
+        // 🌟 PLUS BESOIN DU SETTIMEOUT ! On affiche le toast et on ferme de suite.
+        toast.success("Transaction enregistrée avec succès !");
 
-        setTimeout(() => {
-          setShowSuccess(false);
-          setIsLoading(false);
-          onClose();
+        setIsLoading(false);
+        onClose(); // Ferme la modale immédiatement
 
-          setAmount("");
-          setQuantity("");
-          setAsset("");
-          setDate(new Date().toISOString().split("T")[0]);
+        setAmount("");
+        setQuantity("");
+        setAsset("");
+        setDate(new Date().toISOString().split("T")[0]);
 
-          // NOUVEAU : On met à jour l'UI de manière fluide sans recharger la page !
-          onSuccess();
-        }, 1500);
+        onSuccess(); // Rafraîchit les données en arrière-plan
       } else {
-        console.error("Erreur lors de l'enregistrement");
+        toast.error("Erreur lors de l'enregistrement"); // 🌟 Notification d'erreur !
         setIsLoading(false);
       }
     } catch (error) {
@@ -217,7 +225,27 @@ export default function AddTransactionModal({
                     </select>
                   </div>
                 )}
-
+                {/* Actif Épargne & Épargne Salariale (Champ libre) */}
+                {(category === "epargne" ||
+                  category === "epargne-salariale") && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
+                      Intitulé du compte / fonds
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={asset}
+                      onChange={(e) => setAsset(e.target.value)}
+                      placeholder={
+                        category === "epargne"
+                          ? "Ex: Livret A, LDDS..."
+                          : "Ex: PEE Amundi, PERCO..."
+                      }
+                      className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                )}
                 {/* NOUVEAU : Date */}
                 <div className="space-y-1.5">
                   <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
@@ -281,33 +309,6 @@ export default function AddTransactionModal({
             </div>
 
             {/* Animation Succès */}
-            <AnimatePresence>
-              {showSuccess && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="absolute inset-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50 md:rounded-3xl rounded-t-3xl"
-                >
-                  <motion.div
-                    initial={{ scale: 0.5 }}
-                    animate={{ scale: 1 }}
-                    className="w-16 h-16 bg-emerald-50 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-4"
-                  >
-                    <Check
-                      className="w-8 h-8 text-emerald-500"
-                      strokeWidth={2}
-                    />
-                  </motion.div>
-                  <h3 className="text-xl text-slate-800 dark:text-white font-light mb-1">
-                    Enregistré !
-                  </h3>
-                  <p className="text-sm text-slate-400 font-light">
-                    Mise à jour du patrimoine...
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </motion.div>
         </>
       )}

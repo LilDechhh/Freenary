@@ -51,9 +51,25 @@ async function main() {
     // Ajout de données historiques fictives pour chaque actif
     await prisma.historicalData.createMany({
       data: [
-        { assetId: asset.id, date: 'Jan', value: assetData.totalValue * 0.9 },
-        { assetId: asset.id, date: 'Fév', value: assetData.totalValue * 0.95 },
-        { assetId: asset.id, date: 'Mar', value: assetData.totalValue },
+        // AJOUTE LE userId ICI 👇
+        {
+          assetId: asset.id,
+          userId: user.id,
+          date: 'Jan',
+          value: assetData.totalValue * 0.9,
+        },
+        {
+          assetId: asset.id,
+          userId: user.id,
+          date: 'Fév',
+          value: assetData.totalValue * 0.95,
+        },
+        {
+          assetId: asset.id,
+          userId: user.id,
+          date: 'Mar',
+          value: assetData.totalValue,
+        },
       ],
     });
   }

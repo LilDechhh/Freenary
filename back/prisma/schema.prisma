@@ -18,6 +18,7 @@ model User {
   assets       Asset[]       
   transactions Transaction[] 
   wallets      Wallet[]      // <-- NOUVEAU : Un utilisateur possède plusieurs wallets
+  historicalData HistoricalData[]
 }
 
 model Wallet {
@@ -55,6 +56,11 @@ model HistoricalData {
   
   assetId   String?  
   asset     Asset?   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  // --- LES DEUX LIGNES À AJOUTER SONT ICI ---
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
 }
 
 model Transaction {

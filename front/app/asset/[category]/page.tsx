@@ -1,320 +1,198 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import {
   ArrowLeft,
   TrendingUp,
-  TrendingDown,
-  History,
   Wallet,
-  ArrowDownRight,
-  ArrowUpRight,
-  PieChart as PieChartIcon,
+  Bitcoin,
+  Briefcase,
 } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-interface CategoryData {
-  title: string;
-  totalValue: number;
-  assets: any[];
-  transactions: any[];
-}
-
-export default function AssetDetails() {
+export default function CategoryDetail() {
+  const { category } = useParams();
   const router = useRouter();
-  const params = useParams();
-  const category = params.category as string;
-
-  const [data, setData] = useState<CategoryData | null>(null);
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  function financial(x: any) {
-    return Number.parseFloat(x).toFixed(7);
-  }
-
-  const getCategoryColor = (cat: string) => {
-    switch (cat.toLowerCase()) {
-      case "crypto":
-        return "#f59e0b";
-      case "pea":
-        return "#3b82f6";
-      case "epargne":
-        return "#8b5cf6";
-      case "epargne-salariale":
-        return "#ec4899";
-      default:
-        return "#10b981";
-    }
-  };
-  const categoryColor = getCategoryColor(category);
-
   useEffect(() => {
-    fetch(`http://localhost:3001/wealth/${category}`)
-      .then((res) => res.json())
-      .then((json) => {
+    const fetchDetails = async () => {
+      const token = localStorage.getItem("wealth_token");
+      if (!category) return;
+
+      try {
+        // On s'assure que la catégorie est en minuscule pour l'API
+        const categoryParam = category.toString().toLowerCase();
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/wealth/${categoryParam}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        const json = await res.json();
+        console.log("Données reçues du backend :", json);
         setData(json);
+      } catch (err) {
+        console.error("Erreur fetch :", err);
+      } finally {
         setLoading(false);
-      });
+      }
+    };
+    fetchDetails();
   }, [category]);
 
-  if (loading || !data) {
+  // --- SKELETON LOADING ---
+  if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
-        <p className="text-slate-400 animate-pulse">
-          Chargement des détails...
-        </p>
+      <div className="min-h-screen bg-slate-100/60 dark:bg-slate-950 p-6 md:p-12 transition-colors">
+        <div className="max-w-6xl mx-auto space-y-8">
+          <div className="h-10 w-32 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse" />
+          <div className="h-32 w-full bg-slate-200 dark:bg-slate-800 rounded-3xl animate-pulse" />
+        </div>
       </div>
     );
   }
 
-  const pieColors = [
-    categoryColor,
-    `${categoryColor}CC`,
-    `${categoryColor}99`,
-    `${categoryColor}66`,
-  ];
-  const totalGainLoss =
-    data.assets?.reduce((sum, asset) => sum + (asset.gainLoss || 0), 0) || 0;
+  // Valeurs de sécurité pour éviter les erreurs "undefined"
+  const totalValue = data?.totalCategoryValue || 0;
+  const totalGain = data?.totalGain || 0;
+  const totalGainPercent = data?.totalGainPercent || 0;
+  const assets = data?.assets || [];
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
-      {/* Header */}
-      <div className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 transition-colors">
-        <div className="max-w-md mx-auto px-6 py-6">
-          <div className="flex items-center gap-4 mb-6">
-            <button
-              onClick={() => router.push("/")}
-              className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-            </button>
-            <div>
-              <h1 className="text-xl text-slate-800 dark:text-white font-light">
-                {data.title}
-              </h1>
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-light mt-0.5">
-                {data.assets.length} position{data.assets.length > 1 ? "s" : ""}
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-5 transition-colors">
-            <p className="text-xs text-slate-400 dark:text-slate-500 font-light mb-1">
-              Valeur totale
-            </p>
-            <p className="text-3xl text-slate-800 dark:text-white font-light tracking-tight mb-3">
-              {data.totalValue.toLocaleString("fr-FR", {
-                maximumFractionDigits: 2,
-              })}{" "}
-              €
-            </p>
-            <div className="flex items-center gap-2">
-              {totalGainLoss >= 0 ? (
-                <TrendingUp className="w-4 h-4 text-emerald-500" />
-              ) : (
-                <TrendingDown className="w-4 h-4 text-red-500" />
-              )}
-              <p
-                className={`text-sm font-light ${totalGainLoss >= 0 ? "text-emerald-500" : "text-red-500"}`}
-              >
-                {totalGainLoss >= 0 ? "+" : ""}
-                {totalGainLoss.toLocaleString("fr-FR", {
-                  maximumFractionDigits: 2,
-                })}{" "}
-                €
-              </p>
-            </div>
-          </div>
+    <div className="min-h-screen bg-slate-100/60 dark:bg-slate-950 transition-colors duration-300 pb-12">
+      {/* HEADER */}
+      <div className="bg-white/70 backdrop-blur-xl dark:bg-slate-900/80 border-b border-slate-200/50 dark:border-slate-800 sticky top-0 z-30">
+        <div className="max-w-6xl mx-auto px-4 md:px-8 py-4 flex items-center gap-4">
+          <button
+            onClick={() => router.push("/")}
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+          </button>
+          <h1 className="text-lg font-medium text-slate-800 dark:text-white capitalize">
+            Détails {category}
+          </h1>
         </div>
       </div>
 
-      {/* Contenu */}
-      <div className="max-w-md mx-auto px-6 pt-6">
-        <Tabs defaultValue="positions" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 h-12 p-1 rounded-xl transition-colors">
-            <TabsTrigger
-              value="positions"
-              className="rounded-lg data-[state=active]:bg-slate-800 dark:data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-600 dark:text-slate-400 font-light transition-all"
-            >
-              <Wallet className="w-4 h-4 mr-2" /> Positions
-            </TabsTrigger>
-            <TabsTrigger
-              value="historique"
-              className="rounded-lg data-[state=active]:bg-slate-800 dark:data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-600 dark:text-slate-400 font-light transition-all"
-            >
-              <History className="w-4 h-4 mr-2" /> Historique
-            </TabsTrigger>
-          </TabsList>
+      <div className="max-w-6xl mx-auto px-4 md:px-8 py-8 space-y-8">
+        {/* CARTE RÉCAPITULATIVE */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white/70 backdrop-blur-xl dark:bg-slate-900/80 border border-slate-200/50 dark:border-slate-800 rounded-3xl p-8 shadow-sm"
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-5">
+              <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+                {category === "crypto" && <Bitcoin size={28} />}
+                {category === "pea" && <TrendingUp size={28} />}
+                {category === "epargne" && <Wallet size={28} />}
+                {category === "epargne-salariale" && <Briefcase size={28} />}
+              </div>
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">
+                  Valeur Totale
+                </p>
+                <h2 className="text-3xl font-light text-slate-800 dark:text-white">
+                  {totalValue.toLocaleString("fr-FR")} €
+                </h2>
+              </div>
+            </div>
 
-          <TabsContent value="positions" className="mt-6">
-            <div className="space-y-3">
-              {data.assets?.map((asset, index) => (
+            <div className="text-left md:text-right p-4 md:p-0 bg-slate-50 md:bg-transparent dark:bg-slate-800/50 md:dark:bg-transparent rounded-2xl">
+              <p className="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">
+                Plus-value latente
+              </p>
+              <p
+                className={`text-xl font-medium ${totalGain >= 0 ? "text-emerald-500" : "text-rose-500"}`}
+              >
+                {totalGain >= 0 ? "+" : ""}
+                {totalGain.toLocaleString("fr-FR")} €
+                <span className="text-sm ml-2 opacity-80">
+                  ({totalGainPercent.toFixed(2)}%)
+                </span>
+              </p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* LISTE DES ACTIFS */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest px-1">
+            Tes Actifs
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {assets.length > 0 ? (
+              assets.map((asset: any, idx: number) => (
                 <motion.div
-                  key={asset.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-5 transition-colors"
+                  key={idx}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className="bg-white/70 backdrop-blur-xl dark:bg-slate-900/80 border border-slate-200/50 dark:border-slate-800 p-6 rounded-2xl shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition-all"
                 >
-                  {/* MODIFICATION DE LA MISE EN PAGE ICI */}
-                  <div className="flex justify-between mb-2">
-                    {/* Partie Gauche : Nom + Prix en dessous */}
+                  <div className="flex justify-between items-start mb-4">
                     <div>
-                      <h3 className="text-slate-800 dark:text-white font-medium">
+                      <h4 className="text-lg font-medium text-slate-800 dark:text-white uppercase tracking-tight">
                         {asset.name}
-                      </h3>
-                      {asset.currentPrice && (
-                        <p className="text-xs text-slate-400 dark:text-slate-500 font-light mt-1">
-                          {`${financial(asset.quantity)} × `}
-                          <span className="text-slate-600 dark:text-slate-300 font-medium">
-                            {asset.currentPrice.toLocaleString("fr-FR", {
-                              style: "currency",
-                              currency: "EUR",
-                            })}
-                          </span>
-                        </p>
-                      )}
+                      </h4>
+                      <p className="text-sm text-slate-400 font-light">
+                        {(asset.quantity || 0).toLocaleString("fr-FR", {
+                          maximumFractionDigits: 4,
+                        })}{" "}
+                        unités
+                      </p>
                     </div>
-
-                    {/* Partie Droite : Valeur Totale */}
                     <div className="text-right">
-                      <p className="text-lg text-slate-800 dark:text-white font-light">
-                        {asset.totalValue.toLocaleString("fr-FR", {
+                      <p className="text-lg font-semibold text-slate-800 dark:text-white">
+                        {(asset.currentValue || 0).toLocaleString("fr-FR")} €
+                      </p>
+                      <p className="text-xs text-slate-400 italic">
+                        Prix :{" "}
+                        {(asset.currentPrice || 0).toLocaleString("fr-FR")} €
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold">
+                        PRU
+                      </p>
+                      <p className="text-sm text-slate-600 dark:text-slate-300">
+                        {(asset.pru || 0).toLocaleString("fr-FR", {
                           maximumFractionDigits: 2,
                         })}{" "}
                         €
                       </p>
                     </div>
-                  </div>
-
-                  {/* Ligne de statistiques : PRU et Plus-value */}
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800 mt-4">
-                    {/* Bloc Gauche : PRU */}
-                    <div className="flex flex-col">
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium mb-0.5">
-                        PRU
-                      </span>
-                      <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
-                        {asset.pru > 0
-                          ? `${asset.pru.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} €`
-                          : "-"}
-                      </span>
-                    </div>
-
-                    {/* Bloc Droite : Gain / Perte */}
-                    <div className="flex flex-col items-end">
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium mb-0.5">
-                        Plus-value
-                      </span>
-                      <span
-                        className={`text-xs font-medium ${
-                          asset.gainLossPercent >= 0
-                            ? "text-emerald-500"
-                            : "text-red-500"
-                        }`}
+                    <div className="text-right space-y-1">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold">
+                        Performance
+                      </p>
+                      <p
+                        className={`text-sm font-bold ${(asset.gain || 0) >= 0 ? "text-emerald-500" : "text-rose-500"}`}
                       >
-                        {asset.gainLossPercent >= 0 ? "+" : ""}
-                        {asset.gainLossPercent}% (
-                        {asset.gainLoss > 0 ? "+" : ""}
-                        {asset.gainLoss.toLocaleString("fr-FR", {
-                          maximumFractionDigits: 2,
-                        })}{" "}
-                        €)
-                      </span>
+                        {(asset.gain || 0) >= 0 ? "+" : ""}
+                        {(asset.gain || 0).toLocaleString("fr-FR")} € (
+                        {(asset.gainPercent || 0) >= 0 ? "+" : ""}
+                        {(asset.gainPercent || 0).toFixed(2)}%)
+                      </p>
                     </div>
                   </div>
                 </motion.div>
-              ))}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="historique" className="mt-6">
-            {data.transactions && data.transactions.length > 0 ? (
-              <div className="space-y-3">
-                {data.transactions.map((tx: any, index: number) => (
-                  <motion.div
-                    key={tx.id || index}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl transition-colors"
-                  >
-                    <div className="flex items-center gap-4">
-                      {/* Icône : Vert si achat/dépôt, Rouge si vente/retrait */}
-                      <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          tx.type.toLowerCase() === "achat" ||
-                          tx.type === "versement"
-                            ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-500"
-                            : "bg-red-50 dark:bg-red-900/30 text-red-500"
-                        }`}
-                      >
-                        {tx.type.toLowerCase() === "achat" ||
-                        tx.type === "versement" ? (
-                          <ArrowDownRight className="w-5 h-5" />
-                        ) : (
-                          <ArrowUpRight className="w-5 h-5" />
-                        )}
-                      </div>
-
-                      {/* Infos de la transaction */}
-                      <div>
-                        <p className="text-sm font-medium text-slate-800 dark:text-white">
-                          {tx.assetName}
-                        </p>
-                        <p className="text-xs text-slate-400 dark:text-slate-500 font-light mt-0.5">
-                          {new Date(tx.date).toLocaleDateString("fr-FR", {
-                            day: "numeric",
-                            month: "long",
-                            year: "numeric",
-                          })}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Montants et Quantités */}
-                    <div className="text-right">
-                      <p
-                        className={`text-sm font-medium ${
-                          tx.type === "achat" || tx.type === "versement"
-                            ? "text-emerald-500"
-                            : "text-slate-800 dark:text-white"
-                        }`}
-                      >
-                        {tx.type === "achat" || tx.type === "versement"
-                          ? "+"
-                          : "-"}
-                        {tx.amount.toLocaleString("fr-FR", {
-                          maximumFractionDigits: 2,
-                        })}{" "}
-                        €
-                      </p>
-                      {/* Affiche la quantité si elle existe et n'est pas 0 */}
-                      {tx.quantity ? (
-                        <p className="text-xs text-slate-400 dark:text-slate-500 font-light mt-0.5">
-                          {tx.type === "achat" || tx.type === "versement"
-                            ? "+"
-                            : "-"}
-                          {tx.quantity} parts
-                        </p>
-                      ) : null}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
+              ))
             ) : (
-              /* Le design vide s'il n'y a pas encore de transactions */
-              <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <History className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-                <p className="text-slate-400 dark:text-slate-500 font-light">
-                  Aucun historique pour le moment.
-                </p>
+              <div className="col-span-full py-12 text-center text-slate-400 italic">
+                Aucun actif trouvé dans cette catégorie.
               </div>
             )}
-          </TabsContent>
-        </Tabs>
+          </div>
+        </div>
       </div>
     </div>
   );
