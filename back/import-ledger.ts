@@ -8,23 +8,18 @@ const prisma = new PrismaClient();
 function getAssetNameFromTicker(ticker: string, accountName: string): string {
   const t = ticker ? ticker.toUpperCase() : '';
   if (t === 'BTC') return 'Bitcoin';
+  // On garde les autres au cas où tu veuilles changer le filtre plus tard
   if (t === 'ETH') return 'Ethereum';
   if (t === 'BNB') return 'Binance Coin';
   if (t === 'SOL') return 'Solana';
   if (t === 'XRP') return 'Ripple';
   if (t === 'ADA') return 'Cardano';
-  if (t === 'DOGE') return 'Dogecoin';
-  if (t === 'AVAX') return 'Avalanche';
-  if (t === 'DOT') return 'Polkadot';
-  if (t === 'MATIC') return 'Polygon';
-  if (t === 'LTC') return 'Litecoin';
-  if (t === 'ATOM') return 'Cosmos';
 
   return (accountName && accountName.split(' ')[0]) || ticker || 'Inconnu';
 }
 
 async function main() {
-  console.log("⏳ Début de l'importation multi-actifs...");
+  console.log("⏳ Début de l'importation (Filtre: Uniquement Bitcoin)...");
 
   const user = await prisma.user.findFirst();
   if (!user) {
@@ -32,7 +27,15 @@ async function main() {
   }
 
   const results: any[] = [];
-  const filePath = 'ledgerwallet-operations-2026.03.11.csv';
+  // 🌟 On cible le nouveau fichier
+  const filePath = 'ledgerwallet-operations-2026.03.14.csv';
+
+  // Vérification que le fichier existe
+  if (!fs.existsSync(filePath)) {
+    throw new Error(
+      `❌ Le fichier ${filePath} est introuvable. Placez-le dans le dossier 'back/'.`,
+    );
+  }
 
   fs.createReadStream(filePath)
     .pipe(csv())
@@ -50,13 +53,13 @@ async function main() {
       for (const row of results) {
         if (row['Status'] !== 'Confirmed') continue;
 
-        const date = new Date(row['Operation Date']);
+        // 🌟 LA MAGIE EST ICI : On ignore tout ce qui n'est pas du Bitcoin (BTC)
+        if (row['Currency Ticker'] !== 'BTC') continue;
 
-        // --- CORRECTION 1 : GESTION DES VALEURS VIDES (NaN) ---
+        const date = new Date(row['Operation Date']);
         const rawQuantity = row['Operation Amount'];
         const rawAmount = row['Countervalue at Operation Date'];
 
-        // Si Ledger n'a pas mis de valeur, on force à 0 au lieu de faire planter avec NaN
         const quantity = rawQuantity ? parseFloat(rawQuantity) : 0;
         const amount = rawAmount ? parseFloat(rawAmount) : 0;
         const price = quantity > 0 ? amount / quantity : 0;
@@ -80,7 +83,7 @@ async function main() {
                 category: 'crypto',
                 quantity: 0,
                 totalValue: 0,
-                user: { connect: { id: user.id } }, // Utilisation de connect
+                user: { connect: { id: user.id } },
               },
             });
             console.log(
@@ -92,7 +95,7 @@ async function main() {
 
         const currentAsset = assetCache[assetName];
 
-        // 2. Vérifier si la transaction existe déjà
+        // 2. Vérifier si la transaction existe déjà (pour ne pas l'importer en double)
         const existingTx = await prisma.transaction.findFirst({
           where: {
             date: date,
@@ -111,7 +114,6 @@ async function main() {
               amount: amount,
               quantity: quantity,
               price: price,
-              // --- CORRECTION 2 : SYNTAXE PRISMA CONNECT ---
               asset: { connect: { id: currentAsset.id } },
               user: { connect: { id: user.id } },
             },
@@ -129,7 +131,7 @@ async function main() {
         }
       }
 
-      // 5. Sauvegarde finale
+      // 5. Sauvegarde finale en base de données
       for (const assetName in assetCache) {
         const asset = assetCache[assetName];
         await prisma.asset.update({
@@ -145,7 +147,7 @@ async function main() {
       }
 
       console.log(
-        `\n✅ Import terminé avec succès ! ${importedCount} nouvelles transactions ajoutées.`,
+        `\n✅ Import terminé avec succès ! ${importedCount} nouvelles transactions Bitcoin ajoutées.`,
       );
       await prisma.$disconnect();
     });

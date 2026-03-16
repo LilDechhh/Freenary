@@ -9,6 +9,7 @@ import {
   User,
   AlertCircle,
   ArrowRight,
+  Smile,
 } from "lucide-react";
 
 interface LoginScreenProps {
@@ -16,7 +17,7 @@ interface LoginScreenProps {
 }
 
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
-  const [isLogin, setIsLogin] = useState(true); // True = Connexion, False = Inscription
+  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -42,15 +43,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       );
 
       const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Une erreur est survenue");
 
-      if (!res.ok) {
-        throw new Error(data.message || "Une erreur est survenue");
-      }
-
-      // Succès ! On stocke le token et on prévient la page principale
       localStorage.setItem("wealth_token", data.access_token);
       localStorage.setItem("wealth_user_id", data.user.id);
-
       onLoginSuccess(data.access_token, data.user.id);
     } catch (err: any) {
       setError(err.message);
@@ -60,34 +56,32 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 transition-colors duration-300">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 transition-colors duration-300">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm bg-white dark:bg-slate-900 p-8 rounded-[2rem] shadow-xl shadow-slate-200/50 dark:shadow-black/50 border border-slate-100 dark:border-slate-800"
+        className="w-full max-w-sm bg-card p-8 rounded-[2rem] shadow-premium border border-border"
       >
-        {/* Logo */}
-        <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center text-white mb-6 shadow-lg shadow-blue-500/30">
-          <Activity size={32} />
+        <div className="w-16 h-16 bg-primary rounded-2xl mx-auto flex items-center justify-center text-primary-foreground mb-6 shadow-premium">
+          <Smile size={32} />
         </div>
 
-        <h1 className="text-2xl text-slate-800 dark:text-white font-light text-center tracking-tight mb-2">
+        <h1 className="text-2xl text-foreground font-light text-center tracking-tight mb-2">
           {isLogin ? "Bon retour" : "Créer un compte"}
         </h1>
-        <p className="text-slate-500 dark:text-slate-400 text-sm font-light text-center mb-8">
+        <p className="text-muted-foreground text-sm font-light text-center mb-8">
           {isLogin
             ? "Connectez-vous pour voir votre patrimoine."
             : "Rejoignez-nous pour suivre vos actifs."}
         </p>
 
-        {/* Message d'erreur */}
         <AnimatePresence>
           {error && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="mb-6 bg-red-50 dark:bg-red-500/10 text-red-500 text-sm px-4 py-3 rounded-xl flex items-center gap-2"
+              className="mb-6 bg-destructive/10 text-destructive text-sm px-4 py-3 rounded-xl flex items-center gap-2"
             >
               <AlertCircle size={16} className="shrink-0" />
               <p>{error}</p>
@@ -96,7 +90,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         </AnimatePresence>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Champ Nom (Uniquement pour l'inscription) */}
           <AnimatePresence>
             {!isLogin && (
               <motion.div
@@ -106,7 +99,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 className="relative"
               >
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <User size={18} className="text-slate-400" />
+                  <User size={18} className="text-muted-foreground" />
                 </div>
                 <input
                   type="text"
@@ -114,16 +107,15 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   placeholder="Votre prénom"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full h-12 pl-11 pr-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-light transition-all"
+                  className="w-full h-12 pl-11 pr-4 rounded-xl bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-light transition-all"
                 />
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Champ Email */}
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Mail size={18} className="text-slate-400" />
+              <Mail size={18} className="text-muted-foreground" />
             </div>
             <input
               type="email"
@@ -131,14 +123,13 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               placeholder="Adresse email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full h-12 pl-11 pr-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-light transition-all"
+              className="w-full h-12 pl-11 pr-4 rounded-xl bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-light transition-all"
             />
           </div>
 
-          {/* Champ Mot de passe */}
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Lock size={18} className="text-slate-400" />
+              <Lock size={18} className="text-muted-foreground" />
             </div>
             <input
               type="password"
@@ -146,14 +137,14 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               placeholder="Mot de passe"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full h-12 pl-11 pr-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-light transition-all"
+              className="w-full h-12 pl-11 pr-4 rounded-xl bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-light transition-all"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full h-12 mt-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            className="w-full h-12 mt-2 bg-primary hover:opacity-90 text-primary-foreground rounded-xl font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
           >
             {loading ? (
               <span className="animate-pulse">Chargement...</span>
@@ -166,15 +157,14 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           </button>
         </form>
 
-        {/* Bouton de bascule Connexion/Inscription */}
         <div className="mt-6 text-center">
           <button
             type="button"
             onClick={() => {
               setIsLogin(!isLogin);
-              setError(""); // On efface les erreurs quand on change de mode
+              setError("");
             }}
-            className="text-sm text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            className="text-sm text-muted-foreground hover:text-primary transition-colors"
           >
             {isLogin
               ? "Pas encore de compte ? S'inscrire"

@@ -1,44 +1,88 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Check } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { X, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-// NOUVEAU : Ajout de onSuccess dans les props
+
 interface AddTransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  defaultCategory?: string;
 }
 
 export default function AddTransactionModal({
   isOpen,
   onClose,
-  onSuccess, // NOUVEAU : Récupération de la prop
+  onSuccess,
+  defaultCategory,
 }: AddTransactionModalProps) {
-  const router = useRouter();
-
-  const [category, setCategory] = useState("crypto");
+  const [category, setCategory] = useState(defaultCategory || "crypto");
   const [type, setType] = useState("achat");
   const [amount, setAmount] = useState("");
   const [quantity, setQuantity] = useState("");
   const [asset, setAsset] = useState("");
+  const [assetName, setAssetName] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-
   const [isLoading, setIsLoading] = useState(false);
+
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  useEffect(() => {
+    if (defaultCategory) setCategory(defaultCategory);
+  }, [defaultCategory, isOpen]);
+
+  // Détecte si on est sur un actif sans quantité fixe (où on peut juste mettre à jour le prix)
+  const isFixedAsset = [
+    "epargne",
+    "compte-courant",
+    "epargne-salariale",
+  ].includes(category);
+
+  // Recherche (Intacte)
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (assetName.length >= 2 && !isFixedAsset) {
+        if (category === "pea") {
+          fetchSuggestions("search/stocks", assetName);
+        } else if (category === "crypto") {
+          fetchSuggestions("search/crypto", assetName);
+        }
+      } else {
+        setSuggestions([]);
+      }
+    }, 400);
+    return () => clearTimeout(delayDebounceFn);
+  }, [assetName, category, isFixedAsset]);
+
+  const fetchSuggestions = async (endpoint: string, query: string) => {
+    setIsSearching(true);
+    try {
+      const token = localStorage.getItem("wealth_token");
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/wealth/${endpoint}?q=${query}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const data = await res.json();
+      setSuggestions(data);
+      setShowSuggestions(true);
+    } catch (err) {
+      console.error("Erreur recherche:", err);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-
-    // 1. NOUVEAU : Récupération du token
     const token = localStorage.getItem("wealth_token");
 
     if (!token) {
-      console.error("Token d'authentification manquant");
       setIsLoading(false);
-      // Optionnel : tu pourrais rediriger vers la page de login ici
       return;
     }
 
@@ -49,14 +93,13 @@ export default function AddTransactionModal({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            // 2. NOUVEAU : On ajoute le token dans les headers
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             category,
-            type,
-            asset: asset || category,
-            quantity: quantity ? parseFloat(quantity) : 0,
+            type, // 👈 On envoie le vrai type (achat, vente ou update_balance)
+            asset: asset || assetName,
+            quantity: isFixedAsset ? 0 : quantity ? parseFloat(quantity) : 0,
             amount: parseFloat(amount),
             date,
           }),
@@ -64,20 +107,13 @@ export default function AddTransactionModal({
       );
 
       if (response.ok) {
-        // 🌟 PLUS BESOIN DU SETTIMEOUT ! On affiche le toast et on ferme de suite.
-        toast.success("Transaction enregistrée avec succès !");
-
+        toast.success("Opération enregistrée !");
         setIsLoading(false);
-        onClose(); // Ferme la modale immédiatement
-
-        setAmount("");
-        setQuantity("");
-        setAsset("");
-        setDate(new Date().toISOString().split("T")[0]);
-
-        onSuccess(); // Rafraîchit les données en arrière-plan
+        onClose();
+        resetForm();
+        onSuccess();
       } else {
-        toast.error("Erreur lors de l'enregistrement"); // 🌟 Notification d'erreur !
+        toast.error("Erreur lors de l'enregistrement");
         setIsLoading(false);
       }
     } catch (error) {
@@ -86,231 +122,271 @@ export default function AddTransactionModal({
     }
   };
 
+  const resetForm = () => {
+    setAmount("");
+    setQuantity("");
+    setAsset("");
+    setAssetName("");
+    setSuggestions([]);
+    setDate(new Date().toISOString().split("T")[0]);
+    setType("achat");
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
-        <>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
           />
 
           <motion.div
-            initial={{ y: "100%", opacity: 0 }}
+            initial={{ y: 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: "100%", opacity: 0 }}
+            exit={{ y: 50, opacity: 0 }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed bottom-0 left-0 right-0 md:top-1/2 md:left-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2 bg-white dark:bg-slate-900 md:rounded-3xl rounded-t-3xl shadow-2xl z-50 w-full md:max-w-md max-h-[90vh] overflow-y-auto"
+            className="w-full sm:max-w-md bg-card rounded-t-[2rem] sm:rounded-[2rem] shadow-premium border border-border relative z-10 max-h-[90vh] flex flex-col"
           >
-            <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between z-10">
+            <div className="shrink-0 border-b border-border px-6 py-5 flex items-center justify-between">
               <div>
-                <h2 className="text-xl text-slate-800 dark:text-white font-light">
-                  Nouvelle transaction
+                <h2 className="text-xl text-foreground font-light tracking-tight">
+                  Nouvelle opération
                 </h2>
-                <p className="text-xs text-slate-400 font-light mt-0.5">
-                  Ajouter un mouvement
+                <p className="text-xs text-muted-foreground font-light">
+                  Mettez à jour votre patrimoine
                 </p>
               </div>
               <button
                 onClick={onClose}
-                className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center hover:bg-slate-100 transition-colors"
+                className="w-9 h-9 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors"
               >
-                <X className="w-4 h-4 text-slate-500" />
+                <X className="w-5 h-5 text-muted-foreground" />
               </button>
             </div>
 
-            <div className="p-6">
-              <form onSubmit={handleSubmit} className="space-y-5">
-                {/* LIGNE 1 : Catégorie & Type */}
+            <div className="p-6 overflow-y-auto">
+              <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
+                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
                       Catégorie
                     </label>
                     <select
                       value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                      className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
+                      onChange={(e) => {
+                        setCategory(e.target.value);
+                        resetForm();
+                      }}
+                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none appearance-none cursor-pointer"
                     >
-                      <option value="crypto">Crypto</option>
+                      <option value="compte-courant">Compte Courant</option>
+                      <option value="crypto">Crypto-actifs</option>
                       <option value="pea">Bourse (PEA/CTO)</option>
                       <option value="epargne">Épargne</option>
                       <option value="epargne-salariale">Ép. Salariale</option>
                     </select>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
+                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
                       Type
                     </label>
                     <select
                       value={type}
                       onChange={(e) => setType(e.target.value)}
-                      className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
+                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none appearance-none cursor-pointer"
                     >
-                      <option value="achat">Achat / Dépôt</option>
-                      <option value="vente">Vente / Retrait</option>
+                      <option value="achat">Dépôt / Achat</option>
+                      <option value="vente">Retrait / Vente</option>
+                      {/* 👈 L'OPTION DE MISE A JOUR DU PRIX EST ICI */}
+                      {isFixedAsset && (
+                        <option value="update_balance">
+                          Mise à jour du solde
+                        </option>
+                      )}
                     </select>
                   </div>
                 </div>
 
-                {/* Actif - Adapté selon la catégorie */}
-                {category === "crypto" && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
-                      Nom de la crypto
-                    </label>
-                    <select
-                      required
-                      value={asset}
-                      onChange={(e) => setAsset(e.target.value)}
-                      className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
-                    >
-                      <option value="" disabled>
-                        Sélectionnez une crypto
-                      </option>
-                      <option value="" disabled>
-                        Sélectionnez une crypto
-                      </option>
-                      <option value="Bitcoin">Bitcoin (BTC)</option>
-                      <option value="Ethereum">Ethereum (ETH)</option>
-                      <option value="Binance Coin">Binance Coin (BNB)</option>
-                      <option value="Solana">Solana (SOL)</option>
-                      <option value="Ripple">Ripple (XRP)</option>
-                      <option value="Cardano">Cardano (ADA)</option>
-                      <option value="Dogecoin">Dogecoin (DOGE)</option>
-                      <option value="Avalanche">Avalanche (AVAX)</option>
-                      <option value="Chainlink">Chainlink (LINK)</option>
-                      <option value="Polkadot">Polkadot (DOT)</option>
-                      <option value="Polygon">Polygon (MATIC)</option>
-                      <option value="Litecoin">Litecoin (LTC)</option>
-                      <option value="Shiba Inu">Shiba Inu (SHIB)</option>
-                      <option value="TRON">TRON (TRX)</option>
-                      <option value="Uniswap">Uniswap (UNI)</option>
-                    </select>
-                  </div>
-                )}
+                <div className="space-y-1.5 relative">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
+                    {isFixedAsset ? "Nom du compte" : "Nom de l'actif"}
+                  </label>
 
-                {/* Actif Bourse (PEA/CTO) */}
-                {category === "pea" && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
-                      Nom de l'Action / ETF
-                    </label>
+                  {category === "epargne" ? (
                     <select
+                      value={assetName}
+                      onChange={(e) => {
+                        setAssetName(e.target.value);
+                        setAsset(e.target.value);
+                      }}
+                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none cursor-pointer"
                       required
-                      value={asset}
-                      onChange={(e) => setAsset(e.target.value)}
-                      className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
                     >
-                      <option value="" disabled>
-                        Sélectionnez un actif
-                      </option>
-                      <optgroup label="ETFs (Fonds Indexés)">
-                        <option value="CW8">Amundi MSCI World (CW8)</option>
-                        <option value="ESE">BNP S&P 500 (ESE)</option>
-                      </optgroup>
-                      <optgroup label="Actions Françaises">
-                        <option value="LVMH">LVMH</option>
-                        <option value="Air Liquide">Air Liquide</option>
-                        <option value="TotalEnergies">TotalEnergies</option>
-                        <option value="Hermes">Hermès</option>
-                        <option value="L'Oreal">L'Oréal</option>
-                      </optgroup>
-                      <optgroup label="Actions US">
-                        <option value="Apple">Apple</option>
-                      </optgroup>
+                      <option value="">Choisir un livret...</option>
+                      <option value="Livret A">Livret A</option>
+                      <option value="LDDS">LDDS</option>
+                      <option value="LEP">LEP</option>
+                      <option value="PEL">PEL / CEL</option>
+                      <option value="Assurance Vie">Assurance Vie</option>
                     </select>
-                  </div>
-                )}
-                {/* Actif Épargne & Épargne Salariale (Champ libre) */}
-                {(category === "epargne" ||
-                  category === "epargne-salariale") && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
-                      Intitulé du compte / fonds
-                    </label>
+                  ) : category === "compte-courant" ||
+                    category === "epargne-salariale" ? (
                     <input
                       type="text"
                       required
-                      value={asset}
-                      onChange={(e) => setAsset(e.target.value)}
+                      value={assetName}
+                      onChange={(e) => {
+                        setAssetName(e.target.value);
+                        setAsset(e.target.value);
+                      }}
                       placeholder={
-                        category === "epargne"
-                          ? "Ex: Livret A, LDDS..."
-                          : "Ex: PEE Amundi, PERCO..."
+                        category === "compte-courant"
+                          ? "Ex: BNP, Boursorama..."
+                          : "Ex: PEE Amundi..."
                       }
-                      className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
+                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none"
                     />
-                  </div>
-                )}
-                {/* NOUVEAU : Date */}
-                <div className="space-y-1.5">
-                  <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
-                    Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
-                  />
+                  ) : (
+                    <div className="relative">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
+                      <input
+                        type="text"
+                        required
+                        value={assetName}
+                        onChange={(e) => setAssetName(e.target.value)}
+                        onFocus={() => setShowSuggestions(true)}
+                        placeholder={
+                          category === "pea"
+                            ? "Rechercher Apple, LVMH..."
+                            : "Bitcoin, Ethereum..."
+                        }
+                        className="w-full h-12 pl-11 pr-10 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none"
+                      />
+                      {isSearching && (
+                        <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary animate-spin" />
+                      )}
+                    </div>
+                  )}
+
+                  <AnimatePresence>
+                    {showSuggestions &&
+                      suggestions.length > 0 &&
+                      !isFixedAsset && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0 }}
+                          className="absolute z-20 w-full mt-2 bg-card border border-border rounded-2xl shadow-2xl max-h-56 overflow-y-auto overflow-x-hidden"
+                        >
+                          {suggestions.map((s, i) => (
+                            <div
+                              key={i}
+                              onClick={() => {
+                                setAsset(s.symbol);
+                                setAssetName(s.name);
+                                setShowSuggestions(false);
+                              }}
+                              className="p-4 hover:bg-primary/5 cursor-pointer flex justify-between items-center border-b border-border last:border-none transition-colors group"
+                            >
+                              <div className="flex items-center gap-3">
+                                {s.thumb && (
+                                  <img
+                                    src={s.thumb}
+                                    alt={s.name}
+                                    className="w-5 h-5 rounded-full"
+                                  />
+                                )}
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">
+                                    {s.name}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                                    {s.ticker ? `${s.ticker} • ` : ""}
+                                    {s.exchDisp || s.symbol}
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-muted text-muted-foreground uppercase font-bold">
+                                {s.type}
+                              </span>
+                            </div>
+                          ))}
+                        </motion.div>
+                      )}
+                  </AnimatePresence>
                 </div>
 
-                {/* Quantité & Montant */}
-                <div className="grid grid-cols-2 gap-4">
-                  {(category === "crypto" || category === "pea") && (
+                <div
+                  className={`grid ${isFixedAsset ? "grid-cols-1" : "grid-cols-2 gap-4"}`}
+                >
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none"
+                    />
+                  </div>
+
+                  {!isFixedAsset && (
                     <div className="space-y-1.5">
-                      <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
+                      <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
                         Quantité
                       </label>
                       <input
                         type="number"
                         step="any"
                         required
-                        placeholder="Ex: 0.5"
+                        placeholder="0.00"
                         value={quantity}
                         onChange={(e) => setQuantity(e.target.value)}
-                        className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
+                        className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none"
                       />
                     </div>
                   )}
-                  <div
-                    className={`space-y-1.5 w-full ${category === "epargne" || category === "epargne-salariale" ? "col-span-2" : "col-span-1"}`}
-                  >
-                    <label className="text-xs text-slate-500 font-light uppercase tracking-wider">
-                      Montant total (€)
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      required
-                      placeholder="Ex: 1000"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      className="w-full h-12 px-4 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-slate-800 dark:text-white font-light focus:ring-2 focus:ring-blue-500/20"
-                    />
-                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
+                    {/* 👈 LE TEXTE CHANGE SI ON MET A JOUR LE SOLDE */}
+                    {type === "update_balance"
+                      ? "Nouveau Solde Total Actuel (€)"
+                      : "Montant de l'opération (€)"}
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    placeholder="Ex: 1500"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none"
+                  />
                 </div>
 
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full h-12 mt-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors font-medium tracking-wide disabled:opacity-50"
+                  className="w-full h-14 mt-4 bg-primary text-primary-foreground rounded-2xl transition-all hover:opacity-90 font-medium tracking-wide disabled:opacity-50 shadow-premium active:scale-[0.98]"
                 >
-                  {isLoading
-                    ? "Enregistrement..."
-                    : "Enregistrer la transaction"}
+                  {isLoading ? (
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                  ) : (
+                    "Valider"
+                  )}
                 </button>
               </form>
             </div>
-
-            {/* Animation Succès */}
           </motion.div>
-        </>
+        </div>
       )}
     </AnimatePresence>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   PieChart,
@@ -19,104 +20,125 @@ import {
   Briefcase,
   Plus,
   LogOut,
+  Landmark,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
-import { useRouter } from "next/navigation";
 import AddTransactionModal from "@/components/add-transaction";
 import LoginScreen from "@/components/login-screen";
+import { usePrivacy } from "@/app/provider";
+import { formatCurrency } from "@/lib/utils";
+// ==========================================
+// 🛡️ INTERFACES (Fini les "any" !)
+// ==========================================
+interface DistributionData {
+  name: string;
+  value: number;
+  percentage: string;
+  color: string;
+}
+
+interface HistoricalData {
+  date: string;
+  value: number;
+}
 
 interface WealthData {
   totalWealth: number;
-  distribution: {
-    name: string;
-    value: number;
-    percentage: string;
-    color: string;
-  }[];
-  historicalData: {
-    date: string;
-    value: number;
-  }[];
+  distribution: DistributionData[];
+  historicalData: HistoricalData[];
 }
+
+// ==========================================
+// 🚀 COMPOSANT PRINCIPAL
+// ==========================================
 export default function Dashboard() {
   const router = useRouter();
+
+  const { isPrivacyMode, togglePrivacyMode } = usePrivacy();
+
+  // --- ÉTATS ---
   const [data, setData] = useState<WealthData | null>(null);
   const [userName, setUserName] = useState<string>("");
-
-  // --- NOUVEAU : GESTION DE LA SÉCURITÉ ---
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true); // Gère le chargement initial ET l'auth
+  const [loading, setLoading] = useState<boolean>(true);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  // 1. Au chargement de la page, on vérifie si l'utilisateur a un token dans son navigateur
+  // --- INITIALISATION ---
+  /**
+   * Vérifie au chargement si l'utilisateur est déjà connecté.
+   * Si oui, on extrait son prénom du token JWT pour lui dire bonjour.
+   */
+  // --- INITIALISATION ---
+  /**
+   * Vérifie au chargement si l'utilisateur est déjà connecté.
+   */
   useEffect(() => {
-    const token = localStorage.getItem("wealth_token");
-
-    if (token) {
-      // --- NOUVEAU : DÉCODAGE DU NOM DE L'UTILISATEUR ---
-      try {
-        // On lit les données cachées dans le token JWT
-        const payload = JSON.parse(atob(token.split(".")[1]));
-
-        // On cherche le nom, le prénom, ou à défaut on prend le début de l'email (ex: "hugo@mail.com" -> "hugo")
-        let name =
-          payload.firstName ||
-          payload.name ||
-          (payload.email ? payload.email.split("@")[0] : "Aventurier");
-
-        // On met la première lettre en majuscule pour faire propre ("hugo" -> "Hugo")
-        name = name.charAt(0).toUpperCase() + name.slice(1);
-        setUserName(name);
-      } catch (error) {
-        console.error("Erreur de lecture du token :", error);
-      }
-      // ------------------------------------------------
-    }
     const savedToken = localStorage.getItem("wealth_token");
     if (savedToken) {
+      try {
+        const base64Url = savedToken.split(".")[1];
+        if (!base64Url) throw new Error("Token invalide");
+
+        const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+        const payload = JSON.parse(window.atob(base64));
+
+        const name =
+          payload.name ||
+          (payload.email ? payload.email.split("@")[0] : "Aventurier");
+        setUserName(name.charAt(0).toUpperCase() + name.slice(1));
+      } catch (error) {
+        console.error("Erreur de décodage du token :", error);
+        // Si le token est corrompu, on nettoie pour éviter de bloquer l'app
+        localStorage.removeItem("wealth_token");
+        setIsAuthenticated(false);
+        setLoading(false);
+        return;
+      }
       setToken(savedToken);
       setIsAuthenticated(true);
     } else {
-      setLoading(false); // On arrête le chargement pour afficher le login
+      setLoading(false);
     }
   }, []);
 
-  // 2. On modifie la fonction fetch pour inclure le token de sécurité !
-  const fetchWealthData = useCallback(() => {
-    if (!token) return; // Sécurité : on ne fetch pas sans token
-
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/wealth`, {
-      headers: {
-        Authorization: `Bearer ${token}`, // On montre patte blanche au backend
-      },
-    })
-      .then((res) => {
-        if (res.status === 401) {
-          // Si le token est expiré ou faux, on déconnecte
-          handleLogout();
-          throw new Error("Non autorisé");
-        }
-        return res.json();
-      })
-      .then((json) => {
-        setData(json);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Erreur de connexion:", err);
-        setLoading(false);
+  // --- APPELS API ---
+  /**
+   * Récupère les données globales du patrimoine depuis le backend.
+   * Utilisé au chargement et après l'ajout d'une nouvelle transaction.
+   */
+  const fetchWealthData = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/wealth`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+
+      if (res.status === 401) {
+        handleLogout();
+        throw new Error("Session expirée, veuillez vous reconnecter.");
+      }
+
+      const json: WealthData = await res.json();
+      setData(json);
+    } catch (err) {
+      console.error("Erreur lors de la récupération des données :", err);
+    } finally {
+      setLoading(false);
+    }
   }, [token]);
 
-  // 3. On déclenche le fetch uniquement SI on est authentifié
+  // Déclenche la récupération des données dès que l'utilisateur est authentifié
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchWealthData();
-    }
+    if (isAuthenticated) fetchWealthData();
   }, [isAuthenticated, fetchWealthData]);
 
+  // --- ACTIONS ---
+  /**
+   * Déconnecte l'utilisateur et nettoie le navigateur.
+   */
   const handleLogout = () => {
     localStorage.removeItem("wealth_token");
     localStorage.removeItem("wealth_user_id");
@@ -124,92 +146,77 @@ export default function Dashboard() {
     setToken(null);
   };
 
-  const handleLoginSuccess = (newToken: string, userId: string) => {
-    setToken(newToken);
-    setIsAuthenticated(true);
-    setLoading(true); // On relance le chargement pour chercher la donnée
-  };
+  // ==========================================
+  // 🎨 RENDU VISUEL (RENDER)
+  // ==========================================
 
+  // 1. Écran de chargement
   if (loading && isAuthenticated) {
     return (
-      <div className="min-h-screen bg-slate-100/60 dark:bg-slate-950 transition-colors duration-300">
-        {/* Faux Header */}
-        <div className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
-          <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 flex justify-between items-center">
-            <div className="space-y-2">
-              <div className="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded-md animate-pulse"></div>
-              <div className="h-8 w-40 bg-slate-200 dark:bg-slate-800 rounded-md animate-pulse"></div>
-            </div>
-            <div className="h-10 w-24 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse"></div>
-          </div>
-        </div>
-
-        {/* Fausse Grille */}
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div className="lg:col-span-8 space-y-8">
-              <div className="h-64 w-full bg-slate-200 dark:bg-slate-800 rounded-3xl animate-pulse"></div>
-              <div className="h-48 w-full bg-slate-200 dark:bg-slate-800 rounded-3xl animate-pulse"></div>
-            </div>
-            <div className="lg:col-span-4 space-y-4">
-              <div className="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded-md animate-pulse mb-4"></div>
-              <div className="h-20 w-full bg-slate-200 dark:bg-slate-800 rounded-2xl animate-pulse"></div>
-              <div className="h-20 w-full bg-slate-200 dark:bg-slate-800 rounded-2xl animate-pulse"></div>
-              <div className="h-20 w-full bg-slate-200 dark:bg-slate-800 rounded-2xl animate-pulse"></div>
-            </div>
-          </div>
-        </div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="h-10 w-32 bg-muted rounded-md animate-pulse"></div>
       </div>
     );
   }
 
+  // 2. Écran de connexion
   if (!isAuthenticated) {
-    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <LoginScreen
+        onLoginSuccess={(t) => {
+          setToken(t);
+          setIsAuthenticated(true);
+          setLoading(true);
+        }}
+      />
+    );
   }
 
+  // 3. Dashboard Principal
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 pb-24">
-      {/* HEADER GLOBAL */}
-      <div className="bg-white/70 backdrop-blur-xl dark:bg-slate-900/80 border-b border-slate-200/50 dark:border-slate-800 transition-colors duration-300">
+    <div className="min-h-dvh bg-background transition-colors duration-300 pb-24">
+      {/* HEADER : Bonjour et Patrimoine Total */}
+      <div className="bg-card/80 backdrop-blur-xl border-b border-border transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-4 md:px-8 py-6">
           <div className="flex items-center justify-between">
             <div>
-              {/* 🌟 LE MESSAGE DE BIENVENUE EST ICI 🌟 */}
               <motion.p
                 initial={{ opacity: 0, y: -5 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-sm md:text-base text-slate-500 dark:text-slate-400 mb-4 transition-colors"
+                className="text-sm md:text-base text-muted-foreground mb-4"
               >
                 Bonjour,{" "}
-                <span className="font-medium text-slate-800 dark:text-white">
-                  {userName}
-                </span>{" "}
+                <span className="font-medium text-foreground">{userName}</span>{" "}
                 👋
               </motion.p>
-
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium tracking-wider uppercase mb-1">
+              <p className="text-xs text-muted-foreground font-medium tracking-wider uppercase mb-1">
                 Patrimoine total
               </p>
               <motion.h1
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-3xl md:text-4xl text-slate-800 dark:text-white font-light tracking-tight transition-colors"
+                className="text-3xl md:text-4xl text-foreground font-light tracking-tight"
               >
-                {data?.totalWealth.toLocaleString("fr-FR", {
-                  maximumFractionDigits: 2,
-                })}{" "}
-                €
+                {/* 👈 Modification de l'affichage du total */}
+                {formatCurrency(data?.totalWealth, isPrivacyMode)} €
               </motion.h1>
             </div>
 
             <div className="flex items-center gap-3">
+              {/* 👈 NOUVEAU BOUTON OEIL */}
+              <button
+                onClick={togglePrivacyMode}
+                className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors text-muted-foreground hover:text-foreground"
+              >
+                {isPrivacyMode ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
               <ThemeSwitcher />
               <button
                 onClick={handleLogout}
-                className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors"
               >
                 <LogOut
-                  className="w-4 h-4 text-slate-500 dark:text-slate-400"
+                  className="w-4 h-4 text-muted-foreground"
                   strokeWidth={1.5}
                 />
               </button>
@@ -218,39 +225,37 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* GRILLE PRINCIPALE (La magie du responsive est ici) */}
+      {/* CONTENU : Graphiques et Catégories */}
       <div className="max-w-6xl mx-auto px-4 md:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* COLONNE GAUCHE (Prend 8 colonnes sur 12 sur Desktop) */}
+          {/* Section Gauche : Graphiques */}
           <div className="lg:col-span-8 space-y-8">
-            {/* Évolution Historique */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-6 shadow-sm transition-colors duration-300">
-              <h2 className="text-sm text-slate-600 dark:text-slate-300 font-medium mb-6 transition-colors">
+            {/* Graphique d'évolution */}
+            <div className="bg-card border border-border rounded-3xl p-6 shadow-premium transition-all">
+              <h2 className="text-sm text-muted-foreground font-medium mb-6">
                 Évolution historique
               </h2>
-              {/* Le graphique est beaucoup plus haut sur Desktop (h-64 au lieu de h-24) */}
               <div className="h-48 md:h-64 mb-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={data?.historicalData}>
                     <XAxis dataKey="date" hide />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "rgba(255, 255, 255, 0.9)",
-                        color: "#000",
+                        backgroundColor: "var(--card)",
+                        color: "var(--foreground)",
                         borderRadius: "12px",
-                        border: "none",
-                        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                        border: "1px solid var(--border)",
                       }}
                       labelFormatter={(date) => `${date}`}
-                      formatter={(value: any) => [
-                        `${value.toLocaleString("fr-FR")} €`,
+                      formatter={(value?: number) => [
+                        `${value?.toLocaleString("fr-FR") ?? "0"} €`,
                         "Valeur",
                       ]}
                     />
                     <Line
                       type="monotone"
                       dataKey="value"
-                      stroke="#10b981"
+                      stroke="var(--primary)"
                       strokeWidth={3}
                       dot={true}
                     />
@@ -259,9 +264,9 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Répartition Dynamique (Sortie du header pour intégrer la grille) */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-6 shadow-sm transition-colors duration-300">
-              <h2 className="text-sm text-slate-600 dark:text-slate-300 font-medium mb-6">
+            {/* Graphique de répartition (Camembert) */}
+            <div className="bg-card border border-border rounded-3xl p-6 shadow-premium transition-all">
+              <h2 className="text-sm text-muted-foreground font-medium mb-6">
                 Répartition réelle
               </h2>
               <div className="flex flex-col md:flex-row items-center gap-8">
@@ -286,6 +291,7 @@ export default function Dashboard() {
                   </ResponsiveContainer>
                 </div>
 
+                {/* Légende du graphique */}
                 <div className="flex-1 w-full space-y-3">
                   {data?.distribution.map((item, index) => (
                     <div
@@ -297,14 +303,14 @@ export default function Dashboard() {
                           className="w-3 h-3 rounded-full shadow-sm"
                           style={{ backgroundColor: item.color }}
                         />
-                        <span className="text-sm text-slate-600 dark:text-slate-400 font-light transition-colors">
+                        <span className="text-sm text-muted-foreground font-light">
                           {item.name}
                         </span>
                       </div>
-                      <span className="text-sm text-slate-800 dark:text-slate-200 font-medium transition-colors">
-                        {Math.round(
-                          (item.value / (data?.totalWealth || 1)) * 100,
-                        )}
+                      <span className="text-sm text-foreground font-medium">
+                        {data && data.totalWealth > 0
+                          ? Math.round((item.value / data.totalWealth) * 100)
+                          : 0}
                         %
                       </span>
                     </div>
@@ -314,25 +320,31 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* COLONNE DROITE (Prend 4 colonnes sur 12 sur Desktop) */}
+          {/* Section Droite : Liste des Catégories */}
           <div className="lg:col-span-4 space-y-4">
-            <h2 className="text-sm text-slate-600 dark:text-slate-400 font-medium px-1 mb-2 transition-colors">
-              Détails des catégories
+            <h2 className="text-sm text-muted-foreground font-medium px-1 mb-2">
+              Vos portefeuilles
             </h2>
-
             {data?.distribution.map((asset, index) => (
               <div
                 key={index}
                 onClick={() =>
-                  router.push(`/asset/${asset.name.toLowerCase()}`)
+                  // 👈 CORRECTION URL : On remplace l'espace par un tiret
+                  router.push(
+                    `/asset/${asset.name.toLowerCase().replace(" ", "-")}`,
+                  )
                 }
-                className="bg-white/70 backdrop-blur-xl dark:bg-slate-900/80 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-800 flex items-center justify-between shadow-sm active:scale-[0.98] transition-all cursor-pointer hover:bg-white/90 dark:hover:bg-slate-800 group"
+                className="bg-card/80 backdrop-blur-xl p-5 rounded-2xl border border-border flex items-center justify-between shadow-premium hover:shadow-lg transition-all cursor-pointer group"
               >
                 <div className="flex items-center gap-4">
                   <div
                     className="w-12 h-12 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110"
                     style={{ backgroundColor: `${asset.color}15` }}
                   >
+                    {/* 👈 CORRECTION ICÔNE : Sans "S" */}
+                    {asset.name === "COMPTE COURANT" && (
+                      <Landmark size={24} color={asset.color} />
+                    )}
                     {asset.name === "CRYPTO" && (
                       <Bitcoin size={24} color={asset.color} />
                     )}
@@ -346,15 +358,13 @@ export default function Dashboard() {
                       <Briefcase size={24} color={asset.color} />
                     )}
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors">
-                      {asset.name}
-                    </p>
-                  </div>
+                  <p className="text-sm font-medium text-foreground">
+                    {asset.name}
+                  </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-base text-slate-800 dark:text-white font-medium transition-colors">
-                    {asset.value.toLocaleString("fr-FR")} €
+                  <p className="text-base text-foreground font-medium">
+                    {formatCurrency(asset.value, isPrivacyMode)} €
                   </p>
                 </div>
               </div>
@@ -363,7 +373,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* BOUTON FLOTTANT (Vrai bouton d'action fixé en bas à droite) */}
+      {/* BOUTON FLOTTANT D'AJOUT (+) */}
       <motion.div
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
@@ -371,7 +381,7 @@ export default function Dashboard() {
       >
         <button
           onClick={() => setIsModalOpen(true)}
-          className="w-14 h-14 rounded-full bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-transform hover:scale-105 shadow-xl shadow-blue-600/30"
+          className="w-14 h-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-transform hover:scale-105 shadow-premium"
         >
           <Plus className="w-6 h-6" />
         </button>

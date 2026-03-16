@@ -39,22 +39,26 @@ export class CryptoService {
     return this.cachedPrices;
   }
 
-  async getSolanaBalance(address: string): Promise<number> {
+  // --- MOTEUR DE RECHERCHE CRYPTO (COINGECKO) ---
+  async searchCrypto(query: string) {
+    if (!query || query.length < 2) return [];
+
     try {
-      const res = await fetch('https://api.mainnet-beta.solana.com', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'getBalance',
-          params: [address],
-        }),
-      });
-      const data = await res.json();
-      return (data.result?.value || 0) / 1_000_000_000;
-    } catch (e) {
-      return 0;
+      const url = `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      // On récupère les 10 premiers résultats
+      return data.coins.slice(0, 10).map((coin: any) => ({
+        symbol: coin.id, // On utilise l'ID (ex: 'bitcoin') pour que CoinGecko retrouve le prix plus tard
+        ticker: coin.symbol, // Le symbole court (ex: 'BTC')
+        name: coin.name,
+        thumb: coin.thumb, // Petite icône du jeton
+        type: 'CRYPTO',
+      }));
+    } catch (error) {
+      console.error('Erreur Search CoinGecko:', error);
+      return [];
     }
   }
 }

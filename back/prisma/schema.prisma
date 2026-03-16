@@ -12,23 +12,24 @@ model User {
   email        String        @unique
   password     String        
   name         String
-  role         String        @default("MEMBER")
+  role         String        @default("USER")
   createdAt    DateTime      @default(now())
   
   assets       Asset[]       
   transactions Transaction[] 
-  wallets      Wallet[]      // <-- NOUVEAU : Un utilisateur possède plusieurs wallets
+  wallets      Wallet[]
   historicalData HistoricalData[]
 }
 
 model Wallet {
   id          String   @id @default(uuid())
-  name        String   // Ex: "Ledger BTC", "Solflare Principal"
-  blockchain  String   // Ex: "solana", "ethereum", "bitcoin"
-  address     String   // L'adresse publique (Ex: 5X... pour Solflare)
+  name        String   
+  blockchain  String  
+  address     String  
   
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
 }
 
 model Asset {
@@ -47,19 +48,21 @@ model Asset {
   transactions    Transaction[]    
   
   updatedAt       DateTime      @updatedAt
+
+  @@index([userId, category])
+  @@index([userId, name])
 }
 
 model HistoricalData {
   id        String   @id @default(uuid())
   date      String   
-  value     Float    
-  
+  value     Float      
   assetId   String?  
-  asset     Asset?   @relation(fields: [assetId], references: [id], onDelete: Cascade)
-
-  // --- LES DEUX LIGNES À AJOUTER SONT ICI ---
+  asset     Asset?   @relation(fields: [assetId], references: [id], onDelete: Cascade)  
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
 
 }
 
@@ -77,4 +80,7 @@ model Transaction {
   
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category, date(sort: Desc)])
+  @@index([assetId])
 }
