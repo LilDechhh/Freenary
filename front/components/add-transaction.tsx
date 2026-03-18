@@ -225,6 +225,7 @@ export default function AddTransactionModal({
                       <option value="LDDS">LDDS</option>
                       <option value="LEP">LEP</option>
                       <option value="PEL">PEL / CEL</option>
+                      <option value="Livret Jeune">Livret Jeune</option>
                       <option value="Assurance Vie">Assurance Vie</option>
                     </select>
                   ) : category === "compte-courant" ||
