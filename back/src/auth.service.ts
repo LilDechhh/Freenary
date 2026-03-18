@@ -73,4 +73,31 @@ export class AuthService {
       user: { id: userId, email: email },
     };
   }
+
+  // 4. Mise à jour du mot de passe
+  async updatePassword(userId: string, oldPass: string, newPass: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Utilisateur non trouvé');
+
+    const isValid = await bcrypt.compare(oldPass, user.password);
+    if (!isValid)
+      throw new UnauthorizedException('Ancien mot de passe incorrect');
+
+    const hashed = await bcrypt.hash(newPass, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashed },
+    });
+    return { success: true, message: 'Mot de passe mis à jour avec succès.' };
+  }
+
+  // 5. Suppression de compte RGPD
+  async deleteUser(userId: string) {
+    // Grâce au "onDelete: Cascade" de Prisma, supprimer le User supprimera TOUTES ses transactions et actifs automatiquement !
+    await this.prisma.user.delete({ where: { id: userId } });
+    return {
+      success: true,
+      message: 'Compte et données supprimés définitivement.',
+    };
+  }
 }

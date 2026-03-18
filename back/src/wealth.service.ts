@@ -3,7 +3,7 @@ import { PrismaService } from './prisma.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { StockService } from './stock.service';
 import { CryptoService } from './crypto.service';
-import { CreateTransactionDto } from './create-transaction.dto'; // 🛡️ Import du DTO
+import { CreateTransactionDto } from './create-transaction.dto';
 
 @Injectable()
 export class WealthService {
@@ -144,8 +144,26 @@ export class WealthService {
       value: h.value,
     }));
 
-    if (formattedHistory.length === 0)
+    if (formattedHistory.length === 0) {
       formattedHistory = [{ date: "Aujourd'hui", value: totalWealth }];
+    } else {
+      // On s'assure que le graphique termine TOUJOURS par la valeur exacte à l'instant T
+      const todayLabel = "Aujourd'hui";
+      const todayDateStr = new Date().toLocaleDateString('fr-FR', {
+        day: 'numeric',
+        month: 'short',
+      });
+      const lastPoint = formattedHistory[formattedHistory.length - 1];
+
+      // Si le cron de minuit a déjà créé un point pour aujourd'hui, on le remplace par la valeur live
+      if (lastPoint.date === todayDateStr) {
+        lastPoint.date = todayLabel;
+        lastPoint.value = totalWealth;
+      } else {
+        // Sinon, on rajoute un point au bout de la courbe avec le total de l'instant T
+        formattedHistory.push({ date: todayLabel, value: totalWealth });
+      }
+    }
 
     const categories = [
       { id: 'compte-courant', label: 'COMPTE COURANT', color: '#10b981' },
@@ -254,20 +272,6 @@ export class WealthService {
   // ✍️ ÉCRITURE ET MODIFICATION DES DONNÉES
   // ==========================================
 
-  /**
-   * Enregistre une transaction et gère la logique financière du Prix de Revient Unitaire (PRU)
-   */
-  // ==========================================
-  // ✍️ ÉCRITURE ET MODIFICATION DES DONNÉES
-  // ==========================================
-
-  // ==========================================
-  // ✍️ ÉCRITURE ET MODIFICATION DES DONNÉES
-  // ==========================================
-
-  /**
-   * Enregistre une transaction et gère la logique financière
-   */
   async addTransactionData(body: CreateTransactionDto, userId: string) {
     const { type, category, asset, quantity, amount, date } = body;
     const parsedAmount = Number(amount);
@@ -276,6 +280,9 @@ export class WealthService {
     const isSale =
       type.toLowerCase() === 'vente' || type.toLowerCase() === 'retrait';
     const isUpdate = type.toLowerCase() === 'update_balance';
+    // 🌟 NOUVEAU : Détection des intérêts et dividendes
+    const isInterest =
+      type.toLowerCase() === 'intérêts' || type.toLowerCase() === 'dividendes';
 
     return await this.prisma.$transaction(async (tx) => {
       let currentAsset = await tx.asset.findFirst({
@@ -289,36 +296,35 @@ export class WealthService {
       let newQuantity = parsedQuantity;
       let newTotalValue = parsedAmount;
       let transactionAmount = parsedAmount;
-      let transactionType = type; // On part sur le type envoyé par le front
+      let transactionType = type;
 
       if (currentAsset) {
         const oldQuantity = currentAsset.quantity || 0;
         const oldTotalValue = currentAsset.totalValue || 0;
 
         if (isUpdate) {
-          // 🎯 NOUVELLE LOGIQUE : Traduction automatique en Dépôt ou Retrait
           const diff = parsedAmount - oldTotalValue;
-
-          if (diff === 0) {
+          if (diff === 0)
             return { success: true, message: 'Le solde est déjà à jour.' };
-          }
-
           newTotalValue = parsedAmount;
           newQuantity = oldQuantity;
-          transactionAmount = Math.abs(diff); // Toujours un montant positif dans l'historique
-          transactionType = diff > 0 ? 'dépôt' : 'retrait'; // Le type s'adapte au contexte !
+          transactionAmount = Math.abs(diff);
+          transactionType = diff > 0 ? 'dépôt' : 'retrait';
+        } else if (isInterest) {
+          // Les intérêts font augmenter le solde sans changer la quantité investie de base
+          newTotalValue = oldTotalValue + parsedAmount;
+          newQuantity = oldQuantity;
         } else if (!isSale) {
           newQuantity = oldQuantity + parsedQuantity;
           newTotalValue = oldTotalValue + parsedAmount;
         } else {
+          // Logique de Vente / Retrait
           if (['crypto', 'pea'].includes(category.toLowerCase())) {
             const currentPRU =
               oldQuantity > 0 ? oldTotalValue / oldQuantity : 0;
             const capitalRemoved = parsedQuantity * currentPRU;
-
             newQuantity = Math.max(0, oldQuantity - parsedQuantity);
             newTotalValue = Math.max(0, oldTotalValue - capitalRemoved);
-
             if (newQuantity <= 0.000001) {
               newQuantity = 0;
               newTotalValue = 0;
@@ -334,7 +340,6 @@ export class WealthService {
           data: { quantity: newQuantity, totalValue: newTotalValue },
         });
       } else {
-        // L'actif n'existe pas encore
         currentAsset = await tx.asset.create({
           data: {
             name: asset,
@@ -344,21 +349,10 @@ export class WealthService {
             user: { connect: { id: userId } },
           },
         });
-
         if (isUpdate) {
           transactionAmount = parsedAmount;
           transactionType = 'dépôt';
         }
-      }
-
-      // Petite astuce pour embellir l'historique des livrets
-      if (
-        ['epargne', 'compte-courant', 'epargne-salariale'].includes(
-          category.toLowerCase(),
-        ) &&
-        transactionType.toLowerCase() === 'achat'
-      ) {
-        transactionType = 'dépôt';
       }
 
       await tx.transaction.create({
@@ -373,16 +367,34 @@ export class WealthService {
         },
       });
 
-      return {
-        success: true,
-        message: 'Opération enregistrée avec succès !',
-      };
+      // 🌟 LE RECALCUL HISTORIQUE MAGIQUE 🌟
+      // On calcule si cette transaction enrichit ou appauvrit le patrimoine
+      let deltaHistory = 0;
+      if (
+        ['achat', 'dépôt', 'in', 'intérêts', 'dividendes'].includes(
+          transactionType.toLowerCase(),
+        )
+      ) {
+        deltaHistory = transactionAmount;
+      } else if (
+        ['vente', 'retrait', 'out'].includes(transactionType.toLowerCase())
+      ) {
+        deltaHistory = -transactionAmount;
+      }
+
+      // Si on a un impact financier, on décale tout le graphique à partir de cette date !
+      if (deltaHistory !== 0) {
+        const txDateStr = new Date(date).toISOString().split('T')[0];
+        await tx.historicalData.updateMany({
+          where: { userId, date: { gte: txDateStr } }, // "gte" = supérieur ou égal à la date de l'ajout
+          data: { value: { increment: deltaHistory } }, // Décale le graphique
+        });
+      }
+
+      return { success: true, message: 'Opération enregistrée avec succès !' };
     });
   }
 
-  /**
-   * Supprime une transaction et effectue l'opération inverse sur le solde
-   */
   async deleteTransaction(transactionId: string, userId: string) {
     return await this.prisma.$transaction(async (tx) => {
       const transaction = await tx.transaction.findFirst({
@@ -390,23 +402,41 @@ export class WealthService {
         include: { asset: true },
       });
 
-      if (!transaction)
-        throw new NotFoundException('Transaction non trouvée ou accès refusé');
+      if (!transaction) throw new NotFoundException('Transaction non trouvée');
 
       const { asset, type, amount, quantity } = transaction;
       let newQuantity = asset.quantity || 0;
       let newTotalValue = asset.totalValue || 0;
+      let deltaHistory = 0; // Pour annuler l'impact sur le graphique
 
-      // La suppression annule parfaitement la transaction, qu'elle soit issue d'une mise à jour ou non
-      if (['achat', 'dépôt', 'in'].includes(type.toLowerCase())) {
+      if (
+        ['achat', 'dépôt', 'in', 'intérêts', 'dividendes'].includes(
+          type.toLowerCase(),
+        )
+      ) {
         newQuantity -= quantity || 0;
         newTotalValue -= amount;
+        deltaHistory = -amount; // L'inverse d'un achat
       } else if (['vente', 'retrait', 'out'].includes(type.toLowerCase())) {
         newQuantity += quantity || 0;
-        newTotalValue += amount;
+
+        // 🛡️ CORRECTION DU PRU : On restaure le capital initial, pas le cash généré par la vente
+        let capitalToRestore = amount;
+        const currentAssetQuantity = asset.quantity || 0;
+
+        if (
+          ['crypto', 'pea'].includes(asset.category.toLowerCase()) &&
+          currentAssetQuantity > 0
+        ) {
+          const currentPru = asset.totalValue / currentAssetQuantity;
+          capitalToRestore = (quantity || 0) * currentPru;
+        }
+
+        newTotalValue += capitalToRestore;
+        deltaHistory = amount;
       } else if (type.toLowerCase() === 'ajustement') {
-        // Au cas où tu supprimerais un ancien test !
         newTotalValue -= amount;
+        deltaHistory = -amount;
       }
 
       await tx.asset.update({
@@ -419,12 +449,21 @@ export class WealthService {
 
       await tx.transaction.delete({ where: { id: transactionId } });
 
+      // 🌟 RECALCUL HISTORIQUE INVERSE 🌟
+      if (deltaHistory !== 0) {
+        const txDateStr = transaction.date.toISOString().split('T')[0];
+        await tx.historicalData.updateMany({
+          where: { userId, date: { gte: txDateStr } },
+          data: { value: { increment: deltaHistory } },
+        });
+      }
+
       return { success: true };
     });
   }
 
   /**
-   * Enregistre un wallet externe
+   * Enregistre un wallet externe -> Pas encore dans le front
    */
   async addWalletData(
     body: { name: string; blockchain: string; address: string },

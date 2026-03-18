@@ -26,7 +26,6 @@ export default function AddTransactionModal({
   const [assetName, setAssetName] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [isLoading, setIsLoading] = useState(false);
-
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -35,22 +34,18 @@ export default function AddTransactionModal({
     if (defaultCategory) setCategory(defaultCategory);
   }, [defaultCategory, isOpen]);
 
-  // Détecte si on est sur un actif sans quantité fixe (où on peut juste mettre à jour le prix)
   const isFixedAsset = [
     "epargne",
     "compte-courant",
     "epargne-salariale",
   ].includes(category);
 
-  // Recherche (Intacte)
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
       if (assetName.length >= 2 && !isFixedAsset) {
-        if (category === "pea") {
-          fetchSuggestions("search/stocks", assetName);
-        } else if (category === "crypto") {
+        if (category === "pea") fetchSuggestions("search/stocks", assetName);
+        else if (category === "crypto")
           fetchSuggestions("search/crypto", assetName);
-        }
       } else {
         setSuggestions([]);
       }
@@ -64,7 +59,9 @@ export default function AddTransactionModal({
       const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/wealth/${endpoint}?q=${query}`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
       );
       const data = await res.json();
       setSuggestions(data);
@@ -80,7 +77,6 @@ export default function AddTransactionModal({
     e.preventDefault();
     setIsLoading(true);
     const token = localStorage.getItem("wealth_token");
-
     if (!token) {
       setIsLoading(false);
       return;
@@ -97,7 +93,7 @@ export default function AddTransactionModal({
           },
           body: JSON.stringify({
             category,
-            type, // 👈 On envoie le vrai type (achat, vente ou update_balance)
+            type,
             asset: asset || assetName,
             quantity: isFixedAsset ? 0 : quantity ? parseFloat(quantity) : 0,
             amount: parseFloat(amount),
@@ -108,16 +104,15 @@ export default function AddTransactionModal({
 
       if (response.ok) {
         toast.success("Opération enregistrée !");
-        setIsLoading(false);
         onClose();
         resetForm();
         onSuccess();
       } else {
         toast.error("Erreur lors de l'enregistrement");
-        setIsLoading(false);
       }
     } catch (error) {
-      console.error("Erreur réseau :", error);
+      console.error(error);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -143,12 +138,10 @@ export default function AddTransactionModal({
             onClick={onClose}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm"
           />
-
           <motion.div
             initial={{ y: 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 50, opacity: 0 }}
-            transition={{ type: "spring", damping: 25, stiffness: 200 }}
             className="w-full sm:max-w-md bg-card rounded-t-[2rem] sm:rounded-[2rem] shadow-premium border border-border relative z-10 max-h-[90vh] flex flex-col"
           >
             <div className="shrink-0 border-b border-border px-6 py-5 flex items-center justify-between">
@@ -201,7 +194,9 @@ export default function AddTransactionModal({
                     >
                       <option value="achat">Dépôt / Achat</option>
                       <option value="vente">Retrait / Vente</option>
-                      {/* 👈 L'OPTION DE MISE A JOUR DU PRIX EST ICI */}
+                      <option value="intérêts">
+                        {isFixedAsset ? "Versement Intérêts" : "Dividendes"}
+                      </option>
                       {isFixedAsset && (
                         <option value="update_balance">
                           Mise à jour du solde
@@ -215,7 +210,6 @@ export default function AddTransactionModal({
                   <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
                     {isFixedAsset ? "Nom du compte" : "Nom de l'actif"}
                   </label>
-
                   {category === "epargne" ? (
                     <select
                       value={assetName}
@@ -223,7 +217,7 @@ export default function AddTransactionModal({
                         setAssetName(e.target.value);
                         setAsset(e.target.value);
                       }}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none cursor-pointer"
+                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none cursor-pointer"
                       required
                     >
                       <option value="">Choisir un livret...</option>
@@ -248,7 +242,7 @@ export default function AddTransactionModal({
                           ? "Ex: BNP, Boursorama..."
                           : "Ex: PEE Amundi..."
                       }
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none"
+                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
                     />
                   ) : (
                     <div className="relative">
@@ -264,7 +258,7 @@ export default function AddTransactionModal({
                             ? "Rechercher Apple, LVMH..."
                             : "Bitcoin, Ethereum..."
                         }
-                        className="w-full h-12 pl-11 pr-10 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none"
+                        className="w-full h-12 pl-11 pr-10 bg-muted border-none rounded-xl text-foreground font-light outline-none"
                       />
                       {isSearching && (
                         <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary animate-spin" />
@@ -290,7 +284,7 @@ export default function AddTransactionModal({
                                 setAssetName(s.name);
                                 setShowSuggestions(false);
                               }}
-                              className="p-4 hover:bg-primary/5 cursor-pointer flex justify-between items-center border-b border-border last:border-none transition-colors group"
+                              className="p-4 hover:bg-primary/5 cursor-pointer flex justify-between items-center border-b border-border last:border-none group"
                             >
                               <div className="flex items-center gap-3">
                                 {s.thumb && (
@@ -301,10 +295,10 @@ export default function AddTransactionModal({
                                   />
                                 )}
                                 <div className="flex flex-col">
-                                  <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">
+                                  <span className="text-sm font-medium">
                                     {s.name}
                                   </span>
-                                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                                  <span className="text-[10px] text-muted-foreground uppercase">
                                     {s.ticker ? `${s.ticker} • ` : ""}
                                     {s.exchDisp || s.symbol}
                                   </span>
@@ -332,10 +326,9 @@ export default function AddTransactionModal({
                       required
                       value={date}
                       onChange={(e) => setDate(e.target.value)}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none"
+                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
                     />
                   </div>
-
                   {!isFixedAsset && (
                     <div className="space-y-1.5">
                       <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
@@ -343,12 +336,13 @@ export default function AddTransactionModal({
                       </label>
                       <input
                         type="number"
+                        min="0"
                         step="any"
                         required
                         placeholder="0.00"
                         value={quantity}
                         onChange={(e) => setQuantity(e.target.value)}
-                        className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none"
+                        className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
                       />
                     </div>
                   )}
@@ -356,19 +350,19 @@ export default function AddTransactionModal({
 
                 <div className="space-y-1.5">
                   <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
-                    {/* 👈 LE TEXTE CHANGE SI ON MET A JOUR LE SOLDE */}
                     {type === "update_balance"
                       ? "Nouveau Solde Total Actuel (€)"
                       : "Montant de l'opération (€)"}
                   </label>
                   <input
                     type="number"
+                    min="0"
                     step="any"
                     required
                     placeholder="Ex: 1500"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none"
+                    className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
                   />
                 </div>
 
