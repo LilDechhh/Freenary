@@ -41,6 +41,7 @@ interface Transaction {
   amount: number;
   quantity: number | null;
   assetName: string;
+  label?: string | null;
 }
 interface CategoryData {
   title: string;
@@ -322,15 +323,26 @@ export default function CategoryDetail() {
                           )}
                         </div>
                         <div>
-                          <p className="text-sm font-medium">{tx.assetName}</p>
-                          <p className="text-xs text-muted-foreground capitalize">
-                            {tx.type} •{" "}
-                            {new Date(tx.date).toLocaleDateString("fr-FR", {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                            })}
-                          </p>
+                          <div>
+                            <p className="text-sm font-medium flex items-center gap-2">
+                              {tx.assetName}
+                              {/* 🌟 NOUVEAU BADGE */}
+                              {tx.label && (
+                                <span className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-md font-normal">
+                                  {tx.label}
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs text-muted-foreground capitalize">
+                              {tx.type} •{" "}
+                              {new Date(tx.date).toLocaleDateString("fr-FR", {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                            </p>
+                          </div>
+
                         </div>
                       </div>
                       <div className="flex items-center gap-4">

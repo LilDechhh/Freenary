@@ -11,7 +11,7 @@ export class WealthService {
     private prisma: PrismaService,
     private stockService: StockService,
     private cryptoService: CryptoService,
-  ) {}
+  ) { }
 
   // ==========================================
   // 🤖 CRON JOBS (Tâches automatisées)
@@ -264,6 +264,7 @@ export class WealthService {
         amount: tx.amount,
         quantity: tx.quantity,
         assetName: tx.asset.name,
+        label: tx.label,
       })),
     };
   }
@@ -273,9 +274,9 @@ export class WealthService {
   // ==========================================
 
   async addTransactionData(body: CreateTransactionDto, userId: string) {
-    const { type, category, asset, quantity, amount, date } = body;
+    const { type, category, asset, quantity, amount, date, label } = body;
     const parsedAmount = Number(amount);
-    const parsedQuantity = Number(quantity) || 0;
+    const parsedQuantity = Number(quantity) || 0
 
     const isSale =
       type.toLowerCase() === 'vente' || type.toLowerCase() === 'retrait';
@@ -362,6 +363,7 @@ export class WealthService {
           amount: transactionAmount,
           quantity: isUpdate ? 0 : parsedQuantity,
           date: new Date(date),
+          label: label || null,
           asset: { connect: { id: currentAsset.id } },
           user: { connect: { id: userId } },
         },
