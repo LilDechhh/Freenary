@@ -34,4 +34,8 @@ export class CreateTransactionDto {
   @IsDateString()
   @IsNotEmpty()
   date: string;
+
+  @IsOptional()
+  @IsString()
+  label?: string;
 }
