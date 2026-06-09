@@ -11,7 +11,7 @@ export class WealthService {
     private prisma: PrismaService,
     private stockService: StockService,
     private cryptoService: CryptoService,
-  ) {}
+  ) { }
 
   // ==========================================
   // 🤖 CRON JOBS (Tâches automatisées)
@@ -120,8 +120,8 @@ export class WealthService {
           if (price && liveQuantity > 0) dynamicValue = price * liveQuantity;
         } else if (a.category.toLowerCase() === 'pea') {
           const symbol = this.stockService.getYahooSymbol(a.name);
-          const price = liveStockPrices[symbol];
-          if (price && liveQuantity > 0) dynamicValue = price * liveQuantity;
+          const stockInfo = liveStockPrices[symbol]; // 🌟 Modification ici
+          if (stockInfo && liveQuantity > 0) dynamicValue = stockInfo.price * liveQuantity; // 🌟 Modification ici
         }
 
         return { ...a, dynamicValue, liveQuantity };
@@ -217,11 +217,17 @@ export class WealthService {
     const mappedAssets = await Promise.all(
       assets.map(async (a) => {
         let currentPrice: number | null = null;
-        if (category.toLowerCase() === 'crypto')
+        let displayName = a.name; // 🌟 Par défaut, on garde le ticker
+
+        if (category.toLowerCase() === 'crypto') {
           currentPrice = livePrices[a.name.toLowerCase()]?.eur || null;
-        else if (category.toLowerCase() === 'pea')
-          currentPrice =
-            livePrices[this.stockService.getYahooSymbol(a.name)] || null;
+        } else if (category.toLowerCase() === 'pea') {
+          const stockInfo = livePrices[this.stockService.getYahooSymbol(a.name)];
+          if (stockInfo) {
+            currentPrice = stockInfo.price; // 🌟 On récupère le prix
+            displayName = stockInfo.name;   // 🌟 On récupère le vrai nom
+          }
+        }
 
         const liveQuantity = a.quantity || 0;
         const currentValue = currentPrice
@@ -231,7 +237,8 @@ export class WealthService {
 
         return {
           id: a.id,
-          name: a.name,
+          name: a.name,             // Ticker technique (ex: MC.PA)
+          displayName: displayName, // 🌟 Vrai nom pour l'affichage (ex: LVMH)
           quantity: liveQuantity,
           currentPrice,
           currentValue,
@@ -247,6 +254,11 @@ export class WealthService {
       0,
     );
     const totalInvested = assets.reduce((sum, a) => sum + a.totalValue, 0);
+    // 🌟 NOUVEAU : On crée un dictionnaire qui associe le "ticker" au "vrai nom"
+    const displayNameMap = mappedAssets.reduce((map, asset) => {
+      map[asset.name] = asset.displayName;
+      return map;
+    }, {});
 
     return {
       title: category.toUpperCase(),
@@ -263,7 +275,8 @@ export class WealthService {
         type: tx.type,
         amount: tx.amount,
         quantity: tx.quantity,
-        assetName: tx.asset.name,
+        assetName: displayNameMap[tx.asset.name] || tx.asset.name,
+        label: (tx as any).label || null,
       })),
     };
   }

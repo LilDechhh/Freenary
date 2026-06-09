@@ -74,6 +74,7 @@ model Transaction {
   amount    Float    
   quantity  Float?   
   price     Float?   
+  label     String?
   
   assetId   String   
   asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)

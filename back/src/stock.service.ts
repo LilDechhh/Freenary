@@ -10,7 +10,7 @@ export class StockService {
   private lastRateFetchTime: number = 0;
   private readonly CACHE_DURATION = 5 * 60 * 1000;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async getEurUsdRate(): Promise<number> {
     const now = Date.now();
@@ -40,11 +40,10 @@ export class StockService {
     return name.toUpperCase().trim();
   }
 
-  async fetchPrices(symbols: string[]): Promise<Record<string, number>> {
-    const prices: Record<string, number> = {};
+  async fetchPrices(symbols: string[]): Promise<Record<string, { price: number; name: string }>> {
+    const prices: Record<string, { price: number; name: string }> = {};
     const rate = await this.getEurUsdRate();
 
-    // On utilise Promise.all pour aller plus vite au lieu d'une boucle 'for' lente
     await Promise.all(
       symbols.map(async (name) => {
         const symbol = this.getYahooSymbol(name);
@@ -52,19 +51,15 @@ export class StockService {
           const quote: any = await yahooFinance.quote(symbol);
           if (quote?.regularMarketPrice || quote?.price) {
             let price = quote.regularMarketPrice || quote.price;
-            // 🌟 Conversion automatique si l'action est en Dollars
-            prices[symbol] = quote.currency === 'USD' ? price / rate : price;
+
+            // 🌟 On enregistre le prix ET le vrai nom (shortName ou longName)
+            prices[symbol] = {
+              price: quote.currency === 'USD' ? price / rate : price,
+              name: quote.shortName || quote.longName || symbol,
+            };
           }
         } catch (e) {
           console.error(`❌ Erreur Prix Yahoo pour ${symbol}`, e.message);
-
-          // Optionnel : Fallback sur le dernier prix en base de données si Yahoo échoue
-          const lastAsset = await this.prisma.asset.findFirst({
-            where: { name: symbol, category: 'pea' },
-          });
-          if (lastAsset && !prices[symbol]) {
-            // On peut mettre une logique ici pour ne pas afficher 0€
-          }
         }
       }),
     );
