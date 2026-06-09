@@ -25,6 +25,7 @@ export default function AddTransactionModal({
   const [asset, setAsset] = useState("");
   const [assetName, setAssetName] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [label, setLabel] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -98,6 +99,7 @@ export default function AddTransactionModal({
             quantity: isFixedAsset ? 0 : quantity ? parseFloat(quantity) : 0,
             amount: parseFloat(amount),
             date,
+            label: label || undefined,
           }),
         },
       );
@@ -125,6 +127,7 @@ export default function AddTransactionModal({
     setSuggestions([]);
     setDate(new Date().toISOString().split("T")[0]);
     setType("achat");
+    setLabel("");
   };
 
   return (
@@ -205,6 +208,25 @@ export default function AddTransactionModal({
                     </select>
                   </div>
                 </div>
+                {category === "epargne-salariale" && (
+                  <div className="space-y-1.5 mt-2">
+                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
+                      Motif / Origine du versement
+                    </label>
+                    <select
+                      value={label}
+                      onChange={(e) => setLabel(e.target.value)}
+                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none appearance-none cursor-pointer"
+                    >
+                      <option value="">Sélectionner un motif (Optionnel)</option>
+                      <option value="Participation">Participation</option>
+                      <option value="Intéressement">Intéressement</option>
+                      <option value="Versement volontaire">Versement volontaire</option>
+                      <option value="Abondement">Abondement</option>
+                      <option value="Arbitrage">Arbitrage / Fusion de fonds</option>
+                    </select>
+                  </div>
+                )}
 
                 <div className="space-y-1.5 relative">
                   <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">

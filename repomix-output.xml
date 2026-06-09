@@ -341,7 +341,6 @@ back/
         827
         828
         pg_filenode.map
-        pg_internal.init
         PG_VERSION
       16384/
         112
@@ -380,33 +379,27 @@ back/
         13476
         1417
         1418
-        16385
-        16390
-        16391
-        16392
-        16394
-        16397
-        16398
-        16399
-        16401
-        16404
-        16405
-        16406
-        16408
-        16411
-        16412
-        16413
-        16415
-        16418
-        16419
-        16420
-        16422
-        16423
-        16424
-        16425
-        16426
-        16427
-        16428
+        16454
+        16459
+        16460
+        16461
+        16463
+        16466
+        16467
+        16468
+        16470
+        16473
+        16474
+        16475
+        16477
+        16480
+        16481
+        16482
+        16484
+        16487
+        16488
+        16489
+        16491
         174
         175
         2187
@@ -415,6 +408,12 @@ back/
         2328
         2336
         2337
+        24646
+        24647
+        24648
+        24649
+        24650
+        24651
         2579
         2600
         2600_fsm
@@ -668,7 +667,6 @@ back/
         827
         828
         pg_filenode.map
-        pg_internal.init
         PG_VERSION
       4/
         112
@@ -1267,7 +1265,6 @@ back/
         827
         828
         pg_filenode.map
-        pg_internal.init
         PG_VERSION
     global/
       1213
@@ -1330,7 +1327,6 @@ back/
       6247
       pg_control
       pg_filenode.map
-      pg_internal.init
     pg_logical/
       replorigin_checkpoint
     pg_multixact/
@@ -1338,6 +1334,8 @@ back/
         0000
       offsets/
         0000
+    pg_stat/
+      pgstat.stat
     pg_subtrans/
       0000
     pg_wal/
@@ -1422,10 +1420,6 @@ package.json
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="back/postgres_data/base/16384/16418">
-
-</file>
 
 <file path="back/postgres_data/base/1/13460">
 
@@ -1659,19 +1653,27 @@ This section contains the contents of the repository's files.
 
 </file>
 
-<file path="back/postgres_data/base/16384/16390">
+<file path="back/postgres_data/base/16384/16459">
 
 </file>
 
-<file path="back/postgres_data/base/16384/16397">
+<file path="back/postgres_data/base/16384/16463">
 
 </file>
 
-<file path="back/postgres_data/base/16384/16404">
+<file path="back/postgres_data/base/16384/16466">
 
 </file>
 
-<file path="back/postgres_data/base/16384/16411">
+<file path="back/postgres_data/base/16384/16473">
+
+</file>
+
+<file path="back/postgres_data/base/16384/16480">
+
+</file>
+
+<file path="back/postgres_data/base/16384/16487">
 
 </file>
 
@@ -4598,7 +4600,7 @@ export class StockService {
   private lastRateFetchTime: number = 0;
   private readonly CACHE_DURATION = 5 * 60 * 1000;
 
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   async getEurUsdRate(): Promise<number> {
     const now = Date.now();
@@ -4628,10 +4630,11 @@ export class StockService {
     return name.toUpperCase().trim();
   }
 
-  async fetchPrices(symbols: string[]): Promise<Record<string, { price: number; name: string }>> {
-    const prices: Record<string, { price: number; name: string }> = {};
+  async fetchPrices(symbols: string[]): Promise<Record<string, number>> {
+    const prices: Record<string, number> = {};
     const rate = await this.getEurUsdRate();
 
+    // On utilise Promise.all pour aller plus vite au lieu d'une boucle 'for' lente
     await Promise.all(
       symbols.map(async (name) => {
         const symbol = this.getYahooSymbol(name);
@@ -4639,15 +4642,19 @@ export class StockService {
           const quote: any = await yahooFinance.quote(symbol);
           if (quote?.regularMarketPrice || quote?.price) {
             let price = quote.regularMarketPrice || quote.price;
-
-            // 🌟 On enregistre le prix ET le vrai nom (shortName ou longName)
-            prices[symbol] = {
-              price: quote.currency === 'USD' ? price / rate : price,
-              name: quote.shortName || quote.longName || symbol,
-            };
+            // 🌟 Conversion automatique si l'action est en Dollars
+            prices[symbol] = quote.currency === 'USD' ? price / rate : price;
           }
         } catch (e) {
           console.error(`❌ Erreur Prix Yahoo pour ${symbol}`, e.message);
+
+          // Optionnel : Fallback sur le dernier prix en base de données si Yahoo échoue
+          const lastAsset = await this.prisma.asset.findFirst({
+            where: { name: symbol, category: 'pea' },
+          });
+          if (lastAsset && !prices[symbol]) {
+            // On peut mettre une logique ici pour ne pas afficher 0€
+          }
         }
       }),
     );
@@ -5501,10 +5508,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
 }
 </file>
 
-<file path="back/postgres_data/base/16384/16394">
-
-</file>
-
 <file path="back/src/wealth.service.ts">
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
@@ -5628,8 +5631,8 @@ export class WealthService {
           if (price && liveQuantity > 0) dynamicValue = price * liveQuantity;
         } else if (a.category.toLowerCase() === 'pea') {
           const symbol = this.stockService.getYahooSymbol(a.name);
-          const stockInfo = liveStockPrices[symbol]; // 🌟 Modification ici
-          if (stockInfo && liveQuantity > 0) dynamicValue = stockInfo.price * liveQuantity; // 🌟 Modification ici
+          const price = liveStockPrices[symbol];
+          if (price && liveQuantity > 0) dynamicValue = price * liveQuantity;
         }
 
         return { ...a, dynamicValue, liveQuantity };
@@ -5725,17 +5728,11 @@ export class WealthService {
     const mappedAssets = await Promise.all(
       assets.map(async (a) => {
         let currentPrice: number | null = null;
-        let displayName = a.name; // 🌟 Par défaut, on garde le ticker
-
-        if (category.toLowerCase() === 'crypto') {
+        if (category.toLowerCase() === 'crypto')
           currentPrice = livePrices[a.name.toLowerCase()]?.eur || null;
-        } else if (category.toLowerCase() === 'pea') {
-          const stockInfo = livePrices[this.stockService.getYahooSymbol(a.name)];
-          if (stockInfo) {
-            currentPrice = stockInfo.price; // 🌟 On récupère le prix
-            displayName = stockInfo.name;   // 🌟 On récupère le vrai nom
-          }
-        }
+        else if (category.toLowerCase() === 'pea')
+          currentPrice =
+            livePrices[this.stockService.getYahooSymbol(a.name)] || null;
 
         const liveQuantity = a.quantity || 0;
         const currentValue = currentPrice
@@ -5745,8 +5742,7 @@ export class WealthService {
 
         return {
           id: a.id,
-          name: a.name,             // Ticker technique (ex: MC.PA)
-          displayName: displayName, // 🌟 Vrai nom pour l'affichage (ex: LVMH)
+          name: a.name,
           quantity: liveQuantity,
           currentPrice,
           currentValue,
@@ -6008,7 +6004,7 @@ export class WealthService {
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "npx prisma generate && npx prisma db push && nest build",
+    "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -6159,7 +6155,6 @@ model Transaction {
   amount    Float    
   quantity  Float?   
   price     Float?   
-  label     String?
   
   assetId   String   
   asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
