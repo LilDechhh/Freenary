@@ -276,7 +276,7 @@ export class WealthService {
         amount: tx.amount,
         quantity: tx.quantity,
         assetName: displayNameMap[tx.asset.name] || tx.asset.name,
-        label: tx.label,
+        label: (tx as any).label || null,
       })),
     };
   }

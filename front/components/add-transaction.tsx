@@ -10,6 +10,7 @@ interface AddTransactionModalProps {
   onClose: () => void;
   onSuccess: () => void;
   defaultCategory?: string;
+  preselectedAsset?: { ticker: string; name: string } | null;
 }
 
 export default function AddTransactionModal({
@@ -17,6 +18,7 @@ export default function AddTransactionModal({
   onClose,
   onSuccess,
   defaultCategory,
+  preselectedAsset,
 }: AddTransactionModalProps) {
   const [category, setCategory] = useState(defaultCategory || "crypto");
   const [type, setType] = useState("achat");
@@ -32,8 +34,22 @@ export default function AddTransactionModal({
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   useEffect(() => {
-    if (defaultCategory) setCategory(defaultCategory);
-  }, [defaultCategory, isOpen]);
+    if (isOpen) {
+      if (defaultCategory) setCategory(defaultCategory);
+      if (preselectedAsset) {
+        setAsset(preselectedAsset.ticker);
+        setAssetName(preselectedAsset.name);
+      } else {
+        setAsset("");
+        setAssetName("");
+      }
+      setType("achat");
+      setAmount("");
+      setQuantity("");
+      setDate(new Date().toISOString().split("T")[0]);
+      setSuggestions([]);
+    }
+  }, [isOpen, defaultCategory, preselectedAsset]);
 
   const isFixedAsset = [
     "epargne",
@@ -43,7 +59,7 @@ export default function AddTransactionModal({
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
-      if (assetName.length >= 2 && !isFixedAsset) {
+      if (assetName.length >= 2 && !isFixedAsset && !asset) {
         if (category === "pea") fetchSuggestions("search/stocks", assetName);
         else if (category === "crypto")
           fetchSuggestions("search/crypto", assetName);
@@ -52,7 +68,7 @@ export default function AddTransactionModal({
       }
     }, 400);
     return () => clearTimeout(delayDebounceFn);
-  }, [assetName, category, isFixedAsset]);
+  }, [assetName, category, isFixedAsset, asset]);
 
   const fetchSuggestions = async (endpoint: string, query: string) => {
     setIsSearching(true);
@@ -237,7 +253,7 @@ export default function AddTransactionModal({
                       value={assetName}
                       onChange={(e) => {
                         setAssetName(e.target.value);
-                        setAsset(e.target.value);
+                        setAsset("");
                       }}
                       className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none cursor-pointer"
                       required
