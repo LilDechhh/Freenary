@@ -27,6 +27,7 @@ import AddTransactionModal from "@/components/add-transaction";
 interface Asset {
   id: string;
   name: string;
+  displayName?: string;
   quantity: number;
   currentPrice: number | null;
   currentValue: number;
@@ -234,14 +235,20 @@ export default function CategoryDetail() {
               >
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h4 className="text-lg font-medium uppercase flex items-center gap-2">
-                      {asset.name}{" "}
+                    <h4 className="text-lg font-medium flex items-center gap-2">
+                      {asset.displayName || asset.name}{" "}
                       {isFixedAsset && (
                         <Pencil className="w-3.5 h-3.5 text-muted-foreground opacity-50 group-hover:opacity-100" />
                       )}
                     </h4>
+                    {/* On affiche le ticker (asset.name) uniquement si on a bien trouvé un displayName différent */}
+                    {asset.displayName && asset.displayName !== asset.name && (
+                      <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
+                        {asset.name}
+                      </p>
+                    )}
                     {!isFixedAsset && (
-                      <p className="text-sm text-muted-foreground font-light">
+                      <p className="text-sm text-muted-foreground font-light mt-1">
                         {formatCurrency(asset.quantity, isPrivacyMode, 4)}{" "}
                         unités
                       </p>
