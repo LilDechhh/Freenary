@@ -42,6 +42,7 @@ interface Transaction {
   amount: number;
   quantity: number | null;
   assetName: string;
+  label?: string | null;
 }
 interface CategoryData {
   title: string;
@@ -62,6 +63,7 @@ export default function CategoryDetail() {
   const [assetToUpdate, setAssetToUpdate] = useState<Asset | null>(null);
   const [updateAmount, setUpdateAmount] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
+  const [preselectedAssetForModal, setPreselectedAssetForModal] = useState<{ ticker: string, name: string } | null>(null);
 
   const isFixedAsset = [
     "epargne",
@@ -263,6 +265,19 @@ export default function CategoryDetail() {
                         {formatCurrency(asset.currentPrice, isPrivacyMode)} €
                       </p>
                     )}
+                    {!isFixedAsset && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPreselectedAssetForModal({ ticker: asset.name, name: asset.displayName || asset.name });
+                          setIsModalOpen(true);
+                        }}
+                        className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20 transition-colors"
+                        title="Ajouter un mouvement sur cet actif"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 {!isFixedAsset && (
@@ -329,15 +344,26 @@ export default function CategoryDetail() {
                           )}
                         </div>
                         <div>
-                          <p className="text-sm font-medium">{tx.assetName}</p>
-                          <p className="text-xs text-muted-foreground capitalize">
-                            {tx.type} •{" "}
-                            {new Date(tx.date).toLocaleDateString("fr-FR", {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                            })}
-                          </p>
+                          <div>
+                            <p className="text-sm font-medium flex items-center gap-2">
+                              {tx.assetName}
+                              {/* 🌟 NOUVEAU BADGE */}
+                              {tx.label && (
+                                <span className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-md font-normal">
+                                  {tx.label}
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs text-muted-foreground capitalize">
+                              {tx.type} •{" "}
+                              {new Date(tx.date).toLocaleDateString("fr-FR", {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                            </p>
+                          </div>
+
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
@@ -375,7 +401,10 @@ export default function CategoryDetail() {
         className="fixed bottom-6 right-6 md:bottom-10 md:right-10 z-40"
       >
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setPreselectedAssetForModal(null); // 🌟 Force la modale vide pour le gros bouton
+            setIsModalOpen(true);
+          }}
           className="w-14 h-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-premium"
         >
           <Plus className="w-6 h-6" />
@@ -384,9 +413,13 @@ export default function CategoryDetail() {
 
       <AddTransactionModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false);
+          setPreselectedAssetForModal(null); // 🌟 Nettoie la présélection à la fermeture
+        }}
         onSuccess={fetchDetails}
         defaultCategory={category as string}
+        preselectedAsset={preselectedAssetForModal} // 🌟 Envoie l'actif cliqué
       />
 
       <AnimatePresence>

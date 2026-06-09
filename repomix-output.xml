@@ -341,7 +341,10 @@ back/
         827
         828
         pg_filenode.map
+<<<<<<< HEAD
         pg_internal.init
+=======
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
         PG_VERSION
       16384/
         112
@@ -380,6 +383,7 @@ back/
         13476
         1417
         1418
+<<<<<<< HEAD
         16385
         16390
         16391
@@ -407,6 +411,29 @@ back/
         16426
         16427
         16428
+=======
+        16454
+        16459
+        16460
+        16461
+        16463
+        16466
+        16467
+        16468
+        16470
+        16473
+        16474
+        16475
+        16477
+        16480
+        16481
+        16482
+        16484
+        16487
+        16488
+        16489
+        16491
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
         174
         175
         2187
@@ -415,6 +442,15 @@ back/
         2328
         2336
         2337
+<<<<<<< HEAD
+=======
+        24646
+        24647
+        24648
+        24649
+        24650
+        24651
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
         2579
         2600
         2600_fsm
@@ -668,7 +704,10 @@ back/
         827
         828
         pg_filenode.map
+<<<<<<< HEAD
         pg_internal.init
+=======
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
         PG_VERSION
       4/
         112
@@ -1267,7 +1306,10 @@ back/
         827
         828
         pg_filenode.map
+<<<<<<< HEAD
         pg_internal.init
+=======
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
         PG_VERSION
     global/
       1213
@@ -1330,7 +1372,10 @@ back/
       6247
       pg_control
       pg_filenode.map
+<<<<<<< HEAD
       pg_internal.init
+=======
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
     pg_logical/
       replorigin_checkpoint
     pg_multixact/
@@ -1338,6 +1383,11 @@ back/
         0000
       offsets/
         0000
+<<<<<<< HEAD
+=======
+    pg_stat/
+      pgstat.stat
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
     pg_subtrans/
       0000
     pg_wal/
@@ -1423,10 +1473,13 @@ package.json
 <files>
 This section contains the contents of the repository's files.
 
+<<<<<<< HEAD
 <file path="back/postgres_data/base/16384/16418">
 
 </file>
 
+=======
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
 <file path="back/postgres_data/base/1/13460">
 
 </file>
@@ -4380,6 +4433,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
+<<<<<<< HEAD
 
 @Controller('auth')
 export class AuthController {
@@ -4691,6 +4745,326 @@ export class StockService {
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import csv from 'csv-parser';
+=======
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('register')
+  async register(@Body() body: any) {
+    return this.authService.register(body.email, body.password, body.name);
+  }
+
+  @Post('login')
+  async login(@Body() body: any) {
+    return this.authService.login(body.email, body.password);
+  }
+  @UseGuards(AuthGuard)
+  @Put('update-password')
+  async updatePassword(@Body() body: any, @Request() req: any) {
+    return this.authService.updatePassword(
+      req.user.sub,
+      body.oldPassword,
+      body.newPassword,
+    );
+  }
+
+  @UseGuards(AuthGuard)
+  @Delete('delete-account')
+  async deleteAccount(@Request() req: any) {
+    return this.authService.deleteUser(req.user.sub);
+  }
+}
+</file>
+
+<<<<<<< HEAD
+=======
+<file path="back/src/auth.service.ts">
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { PrismaService } from './prisma.service';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcryptjs';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private prisma: PrismaService,
+    private jwtService: JwtService,
+  ) {}
+
+  // 1. Inscription (Création de compte avec mot de passe crypté)
+  async register(email: string, password: string, name: string) {
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+    });
+    if (existingUser) {
+      throw new UnauthorizedException('Cet email est déjà utilisé.');
+    }
+
+    // On crypte le mot de passe (Salt = 10)
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        name,
+      },
+    });
+    // 3. On injecte le nom dans le JWT
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      name: user.name, // 🌟 AJOUT ICI
+    };
+
+    return {
+      access_token: await this.jwtService.signAsync(payload),
+      user: { id: user.id, email: user.email, name: user.name },
+    };
+  }
+
+  // 2. Connexion (Vérification du mot de passe)
+  async login(email: string, pass: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      throw new UnauthorizedException('Identifiants incorrects');
+    }
+
+    const isPasswordValid = await bcrypt.compare(pass, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Identifiants incorrects');
+    }
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      name: user.name, // 🌟 AJOUT ICI
+    };
+    return {
+      access_token: await this.jwtService.signAsync(payload),
+      user: { id: user.id, email: user.email, name: user.name },
+    };
+  }
+
+  // 3. Génération du passeport (Le Token JWT)
+  private generateToken(userId: string, email: string) {
+    const payload = { sub: userId, email: email };
+    return {
+      access_token: this.jwtService.sign(payload),
+      user: { id: userId, email: email },
+    };
+  }
+
+  // 4. Mise à jour du mot de passe
+  async updatePassword(userId: string, oldPass: string, newPass: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Utilisateur non trouvé');
+
+    const isValid = await bcrypt.compare(oldPass, user.password);
+    if (!isValid)
+      throw new UnauthorizedException('Ancien mot de passe incorrect');
+
+    const hashed = await bcrypt.hash(newPass, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashed },
+    });
+    return { success: true, message: 'Mot de passe mis à jour avec succès.' };
+  }
+
+  // 5. Suppression de compte RGPD
+  async deleteUser(userId: string) {
+    // Grâce au "onDelete: Cascade" de Prisma, supprimer le User supprimera TOUTES ses transactions et actifs automatiquement !
+    await this.prisma.user.delete({ where: { id: userId } });
+    return {
+      success: true,
+      message: 'Compte et données supprimés définitivement.',
+    };
+  }
+}
+</file>
+
+<file path="back/src/crypto.service.ts">
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class CryptoService {
+  private cachedPrices: Record<string, any> = {};
+  private lastFetchTime: number = 0;
+  private readonly CACHE_DURATION = 5 * 60 * 1000;
+
+  private getCoinGeckoId(name: string): string {
+    const n = name.toLowerCase();
+    if (n === 'btc' || n.includes('bitcoin')) return 'bitcoin';
+    if (n === 'eth' || n.includes('ethereum')) return 'ethereum';
+    if (n === 'sol' || n.includes('solana')) return 'solana';
+    return n;
+  }
+
+  async fetchPrices(names: string[]): Promise<Record<string, any>> {
+    const now = Date.now();
+    const ids = names.map((n) => this.getCoinGeckoId(n)).join(',');
+
+    if (
+      now - this.lastFetchTime < this.CACHE_DURATION &&
+      this.cachedPrices[names[0]]
+    ) {
+      return this.cachedPrices;
+    }
+
+    try {
+      const res = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=eur`,
+      );
+      if (res.ok) {
+        this.cachedPrices = await res.json();
+        this.lastFetchTime = now;
+      }
+    } catch (e) {
+      console.error('❌ Erreur CoinGecko', e);
+    }
+    return this.cachedPrices;
+  }
+
+  // --- MOTEUR DE RECHERCHE CRYPTO (COINGECKO) ---
+  async searchCrypto(query: string) {
+    if (!query || query.length < 2) return [];
+
+    try {
+      const url = `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      // On récupère les 10 premiers résultats
+      return data.coins.slice(0, 10).map((coin: any) => ({
+        symbol: coin.id, // On utilise l'ID (ex: 'bitcoin') pour que CoinGecko retrouve le prix plus tard
+        ticker: coin.symbol, // Le symbole court (ex: 'BTC')
+        name: coin.name,
+        thumb: coin.thumb, // Petite icône du jeton
+        type: 'CRYPTO',
+      }));
+    } catch (error) {
+      console.error('Erreur Search CoinGecko:', error);
+      return [];
+    }
+  }
+}
+</file>
+
+<file path="back/src/stock.service.ts">
+import { Injectable } from '@nestjs/common';
+import YahooFinance from 'yahoo-finance2';
+import { PrismaService } from './prisma.service';
+
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+
+@Injectable()
+export class StockService {
+  private cachedEurUsdRate: number = 1.08;
+  private lastRateFetchTime: number = 0;
+  private readonly CACHE_DURATION = 5 * 60 * 1000;
+
+  constructor(private prisma: PrismaService) {}
+
+  async getEurUsdRate(): Promise<number> {
+    const now = Date.now();
+    if (
+      now - this.lastRateFetchTime < this.CACHE_DURATION &&
+      this.lastRateFetchTime !== 0
+    ) {
+      return this.cachedEurUsdRate;
+    }
+    try {
+      const quote: any = await yahooFinance.quote('EURUSD=X');
+      if (quote?.regularMarketPrice) {
+        this.cachedEurUsdRate = quote.regularMarketPrice;
+        this.lastRateFetchTime = now;
+      }
+    } catch (error) {
+      console.error(
+        '⚠️ Impossible de joindre Yahoo pour le taux EUR/USD, utilisation du cache.',
+      );
+    }
+    return this.cachedEurUsdRate;
+  }
+
+  // 🌟 NETTOYAGE : On ne traduit plus les noms.
+  // On renvoie simplement le symbole tel quel car il vient de ton nouveau moteur de recherche.
+  getYahooSymbol(name: string): string {
+    return name.toUpperCase().trim();
+  }
+
+  async fetchPrices(symbols: string[]): Promise<Record<string, number>> {
+    const prices: Record<string, number> = {};
+    const rate = await this.getEurUsdRate();
+
+    // On utilise Promise.all pour aller plus vite au lieu d'une boucle 'for' lente
+    await Promise.all(
+      symbols.map(async (name) => {
+        const symbol = this.getYahooSymbol(name);
+        try {
+          const quote: any = await yahooFinance.quote(symbol);
+          if (quote?.regularMarketPrice || quote?.price) {
+            let price = quote.regularMarketPrice || quote.price;
+            // 🌟 Conversion automatique si l'action est en Dollars
+            prices[symbol] = quote.currency === 'USD' ? price / rate : price;
+          }
+        } catch (e) {
+          console.error(`❌ Erreur Prix Yahoo pour ${symbol}`, e.message);
+
+          // Optionnel : Fallback sur le dernier prix en base de données si Yahoo échoue
+          const lastAsset = await this.prisma.asset.findFirst({
+            where: { name: symbol, category: 'pea' },
+          });
+          if (lastAsset && !prices[symbol]) {
+            // On peut mettre une logique ici pour ne pas afficher 0€
+          }
+        }
+      }),
+    );
+
+    return prices;
+  }
+
+  // --- MOTEUR DE RECHERCHE BOURSIER ---
+  async searchStocks(query: string) {
+    if (!query || query.length < 2) return [];
+
+    try {
+      const cleanedQuery = query.replace(/pea/gi, '').trim();
+      const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(cleanedQuery)}&quotesCount=10`;
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      return data.quotes
+        .filter(
+          (q: any) =>
+            q.quoteType === 'EQUITY' ||
+            q.quoteType === 'ETF' ||
+            q.quoteType === 'MUTUALFUND',
+        )
+        .map((q: any) => ({
+          symbol: q.symbol,
+          name: q.longname || q.shortname || q.symbol,
+          exchDisp: q.exchDisp || 'Global',
+          type: q.quoteType,
+        }));
+    } catch (error) {
+      console.error('Erreur Search Yahoo:', error);
+      return [];
+    }
+  }
+}
+</file>
+
+<file path="back/import-ledger.ts">
+import { PrismaClient } from '@prisma/client';
+import * as fs from 'fs';
+import csv from 'csv-parser';
 
 const prisma = new PrismaClient();
 
@@ -4850,6 +5224,7 @@ main().catch((e) => {
 });
 </file>
 
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
 <file path="front/app/globals.css">
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -5501,10 +5876,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
 }
 </file>
 
+<<<<<<< HEAD
 <file path="back/postgres_data/base/16384/16394">
 
 </file>
 
+=======
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
 <file path="back/src/wealth.service.ts">
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
@@ -6008,7 +6386,11 @@ export class WealthService {
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+<<<<<<< HEAD
     "build": "npx prisma generate && npx prisma db push && nest build",
+=======
+    "build": "nest build",
+>>>>>>> e39024bd01eae4cb478cad1135ca008d8b835924
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
