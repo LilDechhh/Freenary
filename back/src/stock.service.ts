@@ -10,7 +10,7 @@ export class StockService {
   private lastRateFetchTime: number = 0;
   private readonly CACHE_DURATION = 5 * 60 * 1000;
 
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   async getEurUsdRate(): Promise<number> {
     const now = Date.now();
@@ -21,7 +21,7 @@ export class StockService {
       return this.cachedEurUsdRate;
     }
     try {
-      const quote: any = await yahooFinance.quote('EURUSD=X');
+      const quote = (await yahooFinance.quote('EURUSD=X')) as { regularMarketPrice?: number };
       if (quote?.regularMarketPrice) {
         this.cachedEurUsdRate = quote.regularMarketPrice;
         this.lastRateFetchTime = now;
@@ -40,7 +40,9 @@ export class StockService {
     return name.toUpperCase().trim();
   }
 
-  async fetchPrices(symbols: string[]): Promise<Record<string, { price: number; name: string }>> {
+  async fetchPrices(
+    symbols: string[],
+  ): Promise<Record<string, { price: number; name: string }>> {
     const prices: Record<string, { price: number; name: string }> = {};
     const rate = await this.getEurUsdRate();
 
@@ -48,18 +50,25 @@ export class StockService {
       symbols.map(async (name) => {
         const symbol = this.getYahooSymbol(name);
         try {
-          const quote: any = await yahooFinance.quote(symbol);
-          if (quote?.regularMarketPrice || quote?.price) {
-            let price = quote.regularMarketPrice || quote.price;
-
+          const quote = (await yahooFinance.quote(symbol)) as {
+            regularMarketPrice?: number;
+            price?: number;
+            currency?: string;
+            shortName?: string;
+            longName?: string;
+          };
+          const price = quote?.regularMarketPrice || quote?.price;
+          if (price !== undefined) {
             // 🌟 On enregistre le prix ET le vrai nom (shortName ou longName)
             prices[symbol] = {
               price: quote.currency === 'USD' ? price / rate : price,
               name: quote.shortName || quote.longName || symbol,
             };
           }
-        } catch (e) {
-          console.error(`❌ Erreur Prix Yahoo pour ${symbol}`, e.message);
+        } catch (e: unknown) {
+          if (e instanceof Error) {
+            console.error(`❌ Erreur Prix Yahoo pour ${symbol}`, e.message);
+          }
         }
       }),
     );
@@ -76,16 +85,16 @@ export class StockService {
       const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(cleanedQuery)}&quotesCount=10`;
 
       const response = await fetch(url);
-      const data = await response.json();
+      const data = (await response.json()) as { quotes: any[] };
 
       return data.quotes
         .filter(
-          (q: any) =>
+          (q) =>
             q.quoteType === 'EQUITY' ||
             q.quoteType === 'ETF' ||
             q.quoteType === 'MUTUALFUND',
         )
-        .map((q: any) => ({
+        .map((q) => ({
           symbol: q.symbol,
           name: q.longname || q.shortname || q.symbol,
           exchDisp: q.exchDisp || 'Global',

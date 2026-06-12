@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class CryptoService {
-  private cachedPrices: Record<string, any> = {};
+  private cachedPrices: Record<string, { eur?: number }> = {};
   private lastFetchTime: number = 0;
   private readonly CACHE_DURATION = 5 * 60 * 1000;
 
@@ -14,7 +14,7 @@ export class CryptoService {
     return n;
   }
 
-  async fetchPrices(names: string[]): Promise<Record<string, any>> {
+  async fetchPrices(names: string[]): Promise<Record<string, { eur?: number }>> {
     const now = Date.now();
     const ids = names.map((n) => this.getCoinGeckoId(n)).join(',');
 
@@ -30,7 +30,7 @@ export class CryptoService {
         `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=eur`,
       );
       if (res.ok) {
-        this.cachedPrices = await res.json();
+        this.cachedPrices = (await res.json()) as Record<string, { eur?: number }>;
         this.lastFetchTime = now;
       }
     } catch (e) {
@@ -46,10 +46,12 @@ export class CryptoService {
     try {
       const url = `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`;
       const response = await fetch(url);
-      const data = await response.json();
+      const data = (await response.json()) as {
+        coins: { id: string; symbol: string; name: string; thumb: string }[];
+      };
 
       // On récupère les 10 premiers résultats
-      return data.coins.slice(0, 10).map((coin: any) => ({
+      return data.coins.slice(0, 10).map((coin) => ({
         symbol: coin.id, // On utilise l'ID (ex: 'bitcoin') pour que CoinGecko retrouve le prix plus tard
         ticker: coin.symbol, // Le symbole court (ex: 'BTC')
         name: coin.name,

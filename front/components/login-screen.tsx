@@ -2,18 +2,10 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Activity,
-  Mail,
-  Lock,
-  User,
-  AlertCircle,
-  ArrowRight,
-  Smile,
-} from "lucide-react";
+import { Mail, Lock, User, AlertCircle, ArrowRight } from "lucide-react";
 
 interface LoginScreenProps {
-  onLoginSuccess: (token: string, userId: string) => void;
+  onLoginSuccess: (userId: string) => void;
 }
 
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
@@ -39,41 +31,58 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          credentials: "include", // 🛡️ SÉCURITÉ : Envoie et reçoit les cookies HttpOnly
         },
       );
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Une erreur est survenue");
 
-      localStorage.setItem("wealth_token", data.access_token);
       localStorage.setItem("wealth_user_id", data.user.id);
-      onLoginSuccess(data.access_token, data.user.id);
-    } catch (err: any) {
-      setError(err.message);
+      onLoginSuccess(data.user.id);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || "Erreur de connexion");
+      } else {
+        setError("Erreur de connexion");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 transition-colors duration-300">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-background animate-in fade-in duration-700 relative overflow-hidden">
+      {/* 🌟 FOND : Grille subtile (Style Vercel/Stripe) + Lueur douce */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808015_1px,transparent_1px),linear-gradient(to_bottom,#80808015_1px,transparent_1px)] bg-[size:24px_24px]"></div>
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] opacity-40 pointer-events-none">
+        <div className="absolute inset-0 bg-primary/30 rounded-full blur-[100px] mix-blend-normal"></div>
+      </div>
+
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm bg-card p-8 rounded-[2rem] shadow-premium border border-border"
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="relative z-10 w-full max-w-md bg-card/80 backdrop-blur-2xl p-8 sm:p-10 rounded-[2.5rem] shadow-premium border border-border"
       >
-        <div className="w-16 h-16 bg-primary rounded-2xl mx-auto flex items-center justify-center text-primary-foreground mb-6 shadow-premium">
-          <Smile size={32} />
+        <div className="flex justify-center mb-8">
+          <img 
+            src="/icon.png" 
+            alt="Logo Freenary" 
+            className="w-16 h-16 rounded-2xl shadow-inner object-cover" 
+          />
         </div>
 
-        <h1 className="text-2xl text-foreground font-light text-center tracking-tight mb-2">
-          {isLogin ? "Bon retour" : "Créer un compte"}
-        </h1>
-        <p className="text-muted-foreground text-sm font-light text-center mb-8">
-          {isLogin
-            ? "Connectez-vous pour voir votre patrimoine."
-            : "Rejoignez-nous pour suivre vos actifs."}
-        </p>
+        <div className="text-center mb-8">
+          <h1 className="text-3xl text-foreground font-bold tracking-tight mb-2">
+            <span className="text-primary">Freenary</span>
+          </h1>
+          <p className="text-sm text-muted-foreground font-medium">
+            {isLogin
+              ? "Connecte toi"
+              : "Rejoint nous pour suivre tes actifs."}
+          </p>
+        </div>
 
         <AnimatePresence>
           {error && (
@@ -81,7 +90,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="mb-6 bg-destructive/10 text-destructive text-sm px-4 py-3 rounded-xl flex items-center gap-2"
+              className="mb-6 bg-destructive/10 text-destructive text-sm px-4 py-3 rounded-xl flex items-center gap-2 overflow-hidden border border-destructive/20"
             >
               <AlertCircle size={16} className="shrink-0" />
               <p>{error}</p>
@@ -89,89 +98,100 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           )}
         </AnimatePresence>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <AnimatePresence>
             {!isLogin && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="relative"
+                className="overflow-hidden"
               >
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <User size={18} className="text-muted-foreground" />
+                <div className="pb-2">
+                  <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2 block ml-2">
+                    Prénom
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      required={!isLogin}
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full h-12 pl-11 pr-4 bg-transparent border border-border rounded-xl text-sm font-medium outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                      placeholder="Huey"
+                    />
+                  </div>
                 </div>
-                <input
-                  type="text"
-                  required={!isLogin}
-                  placeholder="Votre prénom"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full h-12 pl-11 pr-4 rounded-xl bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-light transition-all"
-                />
               </motion.div>
             )}
           </AnimatePresence>
 
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Mail size={18} className="text-muted-foreground" />
+          <div>
+            <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2 block ml-2">
+              Adresse Email
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full h-12 pl-11 pr-4 bg-transparent border border-border rounded-xl text-sm font-medium outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                placeholder="Riley@freeman.com"
+              />
             </div>
-            <input
-              type="email"
-              required
-              placeholder="Adresse email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full h-12 pl-11 pr-4 rounded-xl bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-light transition-all"
-            />
           </div>
 
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Lock size={18} className="text-muted-foreground" />
+          <div>
+            <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2 block ml-2">
+              Mot de passe
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full h-12 pl-11 pr-4 bg-transparent border border-border rounded-xl text-sm font-medium outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                placeholder="••••••••"
+              />
             </div>
-            <input
-              type="password"
-              required
-              placeholder="Mot de passe"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full h-12 pl-11 pr-4 rounded-xl bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-light transition-all"
-            />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full h-12 mt-2 bg-primary hover:opacity-90 text-primary-foreground rounded-xl font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            className="w-full h-12 mt-6 bg-primary text-white rounded-xl font-medium text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg shadow-primary/30 flex items-center justify-center gap-2 disabled:opacity-50 disabled:hover:scale-100"
           >
             {loading ? (
               <span className="animate-pulse">Chargement...</span>
             ) : (
               <>
                 {isLogin ? "Se connecter" : "Créer mon compte"}
-                <ArrowRight size={18} />
+                <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
         </form>
 
-        <div className="mt-6 text-center">
+        <p className="text-center text-xs text-muted-foreground mt-8">
+          {isLogin ? "Pas encore de compte ?" : "Déjà un compte ?"}
           <button
             type="button"
             onClick={() => {
               setIsLogin(!isLogin);
               setError("");
             }}
-            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+            className="text-primary font-bold hover:underline ml-1"
           >
-            {isLogin
-              ? "Pas encore de compte ? S'inscrire"
-              : "Déjà un compte ? Se connecter"}
+            {isLogin ? "S'inscrire" : "Se connecter"}
           </button>
-        </div>
+        </p>
       </motion.div>
     </div>
   );
 }
+

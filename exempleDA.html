@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Freenary - Dashboard Clean</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        background: '#f8fafc',
+                        foreground: '#0f172a',
+                        card: '#ffffff',
+                        muted: '#f1f5f9',
+                        'muted-foreground': '#64748b',
+                        border: '#e2e8f0',
+                        brand: '#4f46e5',
+                        success: '#059669',
+                        danger: '#e11d48',
+                        donut: {
+                            pink: '#ec4899',
+                            purple: '#8b5cf6',
+                            blue: '#3b82f6',
+                            orange: '#f59e0b',
+                            green: '#10b981'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #f8fafc;
+            color: #0f172a;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        * {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .dotted-leader {
+            flex-grow: 1;
+            border-bottom: 2px dotted #cbd5e1;
+            margin: 0 12px;
+            position: relative;
+            top: -6px;
+        }
+
+        .category-btn {
+            border-left: 3px solid transparent;
+        }
+
+        .category-btn.active {
+            border-left-color: #4f46e5;
+            background-color: #f1f5f9;
+        }
+
+        .category-btn.active .category-text,
+        .category-btn.active .category-value {
+            color: #4f46e5;
+        }
+
+        .category-btn.active .dotted-leader {
+            border-bottom-color: rgba(79, 70, 229, 0.3);
+        }
+
+        .donut-segment {
+            transition: stroke-dashoffset 1s ease-out, stroke-width 0.2s;
+        }
+
+        .donut-segment:hover {
+            stroke-width: 5;
+            cursor: pointer;
+        }
+
+        .view-hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen overflow-hidden">
+
+    <div id="loginScreen" class="min-h-screen flex flex-col items-center justify-center p-4 bg-background fade-in">
+        <div
+            class="bg-card w-full max-w-md p-8 md:p-10 rounded-[2rem] shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] border border-border">
+
+            <div class="flex justify-center mb-8">
+                <div class="w-14 h-14 bg-brand/10 text-brand rounded-2xl flex items-center justify-center">
+                    <div class="w-4 h-4 bg-brand rounded-full"></div>
+                </div>
+            </div>
+
+            <div class="text-center mb-8">
+                <h1 class="text-3xl text-foreground font-bold tracking-tight mb-2">Master your <span
+                        class="text-brand">Wealth.</span></h1>
+                <p class="text-sm text-muted-foreground font-medium">Connectez-vous pour accéder à votre patrimoine.</p>
+            </div>
+
+            <form onsubmit="handleLogin(event)" class="space-y-5">
+                <div>
+                    <label
+                        class="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2 block ml-2">Adresse
+                        Email</label>
+                    <div class="relative">
+                        <i data-lucide="mail"
+                            class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"></i>
+                        <input type="email" value="hugo@freenary.com"
+                            class="w-full h-12 pl-11 pr-4 bg-muted/50 border border-border rounded-xl text-sm font-medium outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all"
+                            required>
+                    </div>
+                </div>
+
+                <div>
+                    <label
+                        class="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2 block ml-2">Mot
+                        de passe</label>
+                    <div class="relative">
+                        <i data-lucide="lock"
+                            class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"></i>
+                        <input type="password" value="password"
+                            class="w-full h-12 pl-11 pr-4 bg-muted/50 border border-border rounded-xl text-sm font-medium outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all"
+                            required>
+                    </div>
+                </div>
+
+                <button type="submit"
+                    class="w-full h-12 mt-4 bg-foreground text-card rounded-xl font-medium text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg shadow-slate-900/10 flex items-center justify-center gap-2">
+                    Se connecter <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+            </form>
+
+            <p class="text-center text-xs text-muted-foreground mt-8">
+                Pas encore de compte ? <a href="#" class="text-foreground font-medium hover:underline">S'inscrire</a>
+            </p>
+        </div>
+    </div>
+
+
+    <div id="appScreen" class="view-hidden flex flex-col md:flex-row min-h-screen w-full">
+
+        <header
+            class="md:hidden bg-card border-b border-border flex items-center justify-between p-4 z-40 relative shrink-0">
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-brand rounded-full"></div>
+                <span class="font-bold tracking-widest text-sm uppercase">Freenary</span>
+            </div>
+            <button onclick="toggleMobileMenu()" class="p-2 text-muted-foreground bg-muted rounded-lg">
+                <i data-lucide="menu" class="w-5 h-5"></i>
+            </button>
+        </header>
+
+        <div id="mobileOverlay" onclick="toggleMobileMenu()"
+            class="fixed inset-0 bg-slate-900/40 z-40 hidden md:hidden backdrop-blur-sm opacity-0 transition-opacity">
+        </div>
+
+        <aside id="sidebar"
+            class="fixed md:relative inset-y-0 left-0 w-[85%] md:w-[320px] lg:w-[400px] h-screen bg-card border-r border-border flex flex-col z-50 shadow-[4px_0_24px_rgba(0,0,0,0.02)] transform -translate-x-full md:translate-x-0 transition-transform duration-300">
+
+            <div class="hidden md:flex p-8 items-center justify-between border-b border-border">
+                <div class="flex items-center gap-3">
+                    <div class="w-3 h-3 bg-brand rounded-full"></div>
+                    <span class="font-bold tracking-widest text-sm uppercase text-foreground">Freenary</span>
+                </div>
+                <button onclick="handleLogout()"
+                    class="text-muted-foreground hover:text-danger bg-muted p-2 rounded-lg transition-colors"
+                    title="Se déconnecter">
+                    <i data-lucide="log-out" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="px-8 pt-8 pb-4 flex flex-col justify-center">
+                <p class="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2">Capital Net</p>
+                <h1 class="text-5xl lg:text-6xl font-bold tracking-tight leading-none mb-2 text-foreground">
+                    68 450 <span class="text-2xl text-muted-foreground font-medium ml-1">€</span>
+                </h1>
+                <p class="text-sm font-semibold text-success">+ 4 695 € <span
+                        class="text-muted-foreground font-medium ml-1">YTD</span></p>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4 lg:p-6 pb-20 md:pb-6">
+                <button onclick="selectCategory('global', 'Vue Globale')" id="nav-global"
+                    class="category-btn active w-full flex items-center gap-3 group cursor-pointer text-left py-3 px-4 rounded-xl mb-6">
+                    <i data-lucide="pie-chart"
+                        class="w-4 h-4 text-muted-foreground group-hover:text-brand category-text"></i>
+                    <span class="text-sm font-bold text-muted-foreground group-hover:text-foreground category-text">Vue
+                        Globale</span>
+                </button>
+
+                <p class="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-4 px-4">Catégories
+                </p>
+
+                <div class="space-y-1">
+                    <button onclick="selectCategory('epargne-salariale', 'Épargne Salariale')"
+                        id="nav-epargne-salariale"
+                        class="category-btn w-full flex items-center group cursor-pointer text-left py-3 px-4 rounded-r-xl">
+                        <span
+                            class="text-sm font-semibold text-muted-foreground group-hover:text-foreground category-text flex items-center gap-2"><span
+                                class="w-2 h-2 rounded-full bg-donut-pink"></span> Ép. Salariale</span>
+                        <div class="dotted-leader group-hover:border-slate-400"></div>
+                        <span
+                            class="text-sm font-bold tracking-tight text-muted-foreground group-hover:text-foreground category-value">39
+                            700 €</span>
+                    </button>
+                    <button onclick="selectCategory('epargne', 'Épargne')" id="nav-epargne"
+                        class="category-btn w-full flex items-center group cursor-pointer text-left py-3 px-4 rounded-r-xl">
+                        <span
+                            class="text-sm font-semibold text-muted-foreground group-hover:text-foreground category-text flex items-center gap-2"><span
+                                class="w-2 h-2 rounded-full bg-donut-purple"></span> Épargne</span>
+                        <div class="dotted-leader group-hover:border-slate-400"></div>
+                        <span
+                            class="text-sm font-bold tracking-tight text-muted-foreground group-hover:text-foreground category-value">15
+                            000 €</span>
+                    </button>
+                    <button onclick="selectCategory('crypto', 'Crypto')" id="nav-crypto"
+                        class="category-btn w-full flex items-center group cursor-pointer text-left py-3 px-4 rounded-r-xl">
+                        <span
+                            class="text-sm font-semibold text-muted-foreground group-hover:text-foreground category-text flex items-center gap-2"><span
+                                class="w-2 h-2 rounded-full bg-donut-orange"></span> Crypto</span>
+                        <div class="dotted-leader group-hover:border-slate-400"></div>
+                        <span
+                            class="text-sm font-bold tracking-tight text-muted-foreground group-hover:text-foreground category-value">8
+                            900 €</span>
+                    </button>
+                    <button onclick="selectCategory('pea', 'PEA')" id="nav-pea"
+                        class="category-btn w-full flex items-center group cursor-pointer text-left py-3 px-4 rounded-r-xl">
+                        <span
+                            class="text-sm font-semibold text-muted-foreground group-hover:text-foreground category-text flex items-center gap-2"><span
+                                class="w-2 h-2 rounded-full bg-donut-blue"></span> PEA</span>
+                        <div class="dotted-leader group-hover:border-slate-400"></div>
+                        <span
+                            class="text-sm font-bold tracking-tight text-muted-foreground group-hover:text-foreground category-value">2
+                            750 €</span>
+                    </button>
+                    <button onclick="selectCategory('compte-courant', 'Compte Courant')" id="nav-compte-courant"
+                        class="category-btn w-full flex items-center group cursor-pointer text-left py-3 px-4 rounded-r-xl">
+                        <span
+                            class="text-sm font-semibold text-muted-foreground group-hover:text-foreground category-text flex items-center gap-2"><span
+                                class="w-2 h-2 rounded-full bg-donut-green"></span> C. Courant</span>
+                        <div class="dotted-leader group-hover:border-slate-400"></div>
+                        <span
+                            class="text-sm font-bold tracking-tight text-muted-foreground group-hover:text-foreground category-value">2
+                            100 €</span>
+                    </button>
+                </div>
+
+                <div class="mt-8 px-4">
+                    <button onclick="openModal()"
+                        class="w-full py-3 rounded-xl text-xs uppercase tracking-widest font-bold bg-foreground text-card hover:scale-[1.02] active:scale-[0.98] transition-transform flex items-center justify-center gap-2 shadow-lg shadow-slate-900/10">
+                        <i data-lucide="plus" class="w-3 h-3"></i> Nouvelle Opération
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 h-[calc(100vh-64px)] md:h-screen overflow-y-auto bg-background relative w-full">
+
+            <section
+                class="h-[35vh] lg:h-[40vh] border-b border-border bg-card relative flex items-end p-6 lg:p-8 overflow-hidden">
+                <div
+                    class="absolute top-6 left-6 lg:top-8 lg:left-8 z-10 bg-white/80 backdrop-blur px-4 py-2 rounded-xl shadow-sm border border-border">
+                    <p class="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-1">Performance
+                    </p>
+                    <p id="chart-title" class="font-bold tracking-tight text-2xl lg:text-3xl text-foreground">Vue
+                        Globale</p>
+                </div>
+                <svg class="absolute inset-0 w-full h-full pointer-events-none">
+                    <line x1="0" y1="25%" x2="100%" y2="25%" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="4 4" />
+                    <line x1="0" y1="50%" x2="100%" y2="50%" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4 4" />
+                    <line x1="0" y1="75%" x2="100%" y2="75%" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="4 4" />
+                    <text x="10" y="24%" fill="#94a3b8" font-size="10" font-family="sans-serif">+15%</text>
+                    <text x="10" y="49%" fill="#94a3b8" font-size="10" font-family="sans-serif">+10%</text>
+                    <text x="10" y="74%" fill="#94a3b8" font-size="10" font-family="sans-serif">+5%</text>
+                </svg>
+                <svg class="absolute bottom-0 left-0 w-full h-[75%]" preserveAspectRatio="none" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#4f46e5" stop-opacity="0.15" />
+                            <stop offset="100%" stop-color="#4f46e5" stop-opacity="0" />
+                        </linearGradient>
+                    </defs>
+                    <path d="M0,90 Q15,85 25,85 T50,60 T75,40 T100,20 L100,100 L0,100 Z" fill="url(#chartGradient)" />
+                    <path d="M0,90 Q15,85 25,85 T50,60 T75,40 T100,20" fill="none" stroke="#4f46e5" stroke-width="2.5"
+                        stroke-linecap="round" />
+                    <circle cx="100" cy="20" r="1.5" fill="#ffffff" stroke="#4f46e5" stroke-width="1" />
+                </svg>
+            </section>
+
+            <div class="p-4 md:p-8 lg:p-12 space-y-8 lg:space-y-12 max-w-5xl mx-auto pb-24 md:pb-12">
+
+                <section id="section-repartition"
+                    class="fade-in bg-card border border-border rounded-[2rem] p-6 lg:p-8 shadow-sm">
+                    <h2 class="text-sm font-bold text-muted-foreground mb-8 uppercase tracking-wide">Répartition réelle
+                    </h2>
+                    <div class="flex flex-col md:flex-row items-center justify-center md:justify-start gap-8 lg:gap-16">
+                        <div class="relative w-48 h-48 shrink-0">
+                            <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90 drop-shadow-sm">
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#f1f5f9" stroke-width="4">
+                                </circle>
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#ec4899" stroke-width="4"
+                                    stroke-dasharray="57 43" stroke-dashoffset="0" class="donut-segment"></circle>
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#8b5cf6" stroke-width="4"
+                                    stroke-dasharray="21 79" stroke-dashoffset="-58" class="donut-segment"></circle>
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#f59e0b" stroke-width="4"
+                                    stroke-dasharray="12 88" stroke-dashoffset="-80" class="donut-segment"></circle>
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#3b82f6" stroke-width="4"
+                                    stroke-dasharray="3 97" stroke-dashoffset="-93" class="donut-segment"></circle>
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#10b981" stroke-width="4"
+                                    stroke-dasharray="2 98" stroke-dashoffset="-97" class="donut-segment"></circle>
+                            </svg>
+                        </div>
+                        <div class="w-full max-w-sm space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-donut-green"></div><span
+                                        class="text-sm font-semibold text-muted-foreground">COMPTE COURANT</span>
+                                </div><span class="text-sm font-bold text-foreground">2%</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-donut-orange"></div><span
+                                        class="text-sm font-semibold text-muted-foreground">CRYPTO</span>
+                                </div><span class="text-sm font-bold text-foreground">13%</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-donut-blue"></div><span
+                                        class="text-sm font-semibold text-muted-foreground">PEA</span>
+                                </div><span class="text-sm font-bold text-foreground">4%</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-donut-purple"></div><span
+                                        class="text-sm font-semibold text-muted-foreground">EPARGNE</span>
+                                </div><span class="text-sm font-bold text-foreground">22%</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-donut-pink"></div><span
+                                        class="text-sm font-semibold text-muted-foreground">EPARGNE-SALARIALE</span>
+                                </div><span class="text-sm font-bold text-foreground">58%</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="section-assets" class="hidden fade-in space-y-4">
+                    <div class="flex justify-between items-center mb-4 px-1">
+                        <h2 class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Positions
+                            Actives</h2>
+                        <button onclick="openModal()"
+                            class="text-[10px] font-bold text-brand hover:text-brand/80 transition-colors uppercase tracking-[0.1em] flex items-center gap-1">
+                            <i data-lucide="plus" class="w-3 h-3"></i> Ajouter
+                        </button>
+                    </div>
+
+                    <div class="bg-card border border-border rounded-2xl shadow-sm overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[500px]">
+                            <thead>
+                                <tr
+                                    class="border-b border-border bg-muted/30 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                                    <th class="py-3 px-4 font-bold">Actif</th>
+                                    <th class="py-3 px-4 font-bold text-right hidden sm:table-cell">Quantité</th>
+                                    <th class="py-3 px-4 font-bold text-right">PRU</th>
+                                    <th class="py-3 px-4 font-bold text-right">Valeur</th>
+                                </tr>
+                            </thead>
+
+                            <tbody id="assets-pea" class="asset-tbody hidden text-sm">
+                                <tr class="border-b border-border hover:bg-muted/30 transition-colors">
+                                    <td class="py-4 px-4 font-semibold">MSCI World <span
+                                            class="text-muted-foreground ml-2 text-[10px] font-bold bg-muted px-2 py-0.5 rounded">CW8.PA</span>
+                                    </td>
+                                    <td
+                                        class="py-4 px-4 text-right font-medium text-muted-foreground hidden sm:table-cell">
+                                        34.06</td>
+                                    <td class="py-4 px-4 text-right font-medium text-muted-foreground">328.00 €</td>
+                                    <td class="py-4 px-4 text-right font-bold text-base text-foreground tracking-tight">
+                                        12 400 €</td>
+                                </tr>
+                            </tbody>
+
+                            <tbody id="assets-crypto" class="asset-tbody hidden text-sm">
+                                <tr class="border-b border-border hover:bg-muted/30 transition-colors">
+                                    <td class="py-4 px-4 font-semibold">Bitcoin <span
+                                            class="text-muted-foreground ml-2 text-[10px] font-bold bg-muted px-2 py-0.5 rounded">BTC</span>
+                                    </td>
+                                    <td
+                                        class="py-4 px-4 text-right font-medium text-muted-foreground hidden sm:table-cell">
+                                        0.145</td>
+                                    <td class="py-4 px-4 text-right font-medium text-muted-foreground">42 100 €</td>
+                                    <td class="py-4 px-4 text-right font-bold text-base text-foreground tracking-tight">
+                                        6 104 €</td>
+                                </tr>
+                            </tbody>
+
+                            <tbody id="assets-epargne" class="asset-tbody hidden text-sm">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Sélectionnez un
+                                        livret</td>
+                                </tr>
+                            </tbody>
+                            <tbody id="assets-epargne-salariale" class="asset-tbody hidden text-sm">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Synchronisation en
+                                        cours...</td>
+                                </tr>
+                            </tbody>
+                            <tbody id="assets-compte-courant" class="asset-tbody hidden text-sm">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Aucun actif</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="section-history" class="hidden fade-in space-y-4">
+                    <h2 class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-1">Historique
+                        des transactions</h2>
+
+                    <div class="bg-card border border-border rounded-2xl shadow-sm overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[500px]">
+                            <thead>
+                                <tr
+                                    class="border-b border-border bg-muted/30 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                                    <th class="py-3 px-4 font-bold">Date</th>
+                                    <th class="py-3 px-4 font-bold">Type</th>
+                                    <th class="py-3 px-4 font-bold">Actif</th>
+                                    <th class="py-3 px-4 font-bold text-right">Montant</th>
+                                </tr>
+                            </thead>
+
+                            <tbody id="history-pea" class="history-tbody hidden text-sm">
+                                <tr class="border-b border-border hover:bg-muted/30 transition-colors">
+                                    <td class="py-4 px-4 font-medium text-muted-foreground text-xs">10 Juin 2026</td>
+                                    <td class="py-4 px-4"><span
+                                            class="bg-success/10 text-success px-2 py-1 rounded font-bold text-[10px] uppercase tracking-wider">Achat</span>
+                                    </td>
+                                    <td class="py-4 px-4 font-semibold text-foreground">MSCI World</td>
+                                    <td class="py-4 px-4 text-right font-bold text-base text-success tracking-tight">+
+                                        500 €</td>
+                                </tr>
+                                <tr class="hover:bg-muted/30 transition-colors">
+                                    <td class="py-4 px-4 font-medium text-muted-foreground text-xs">02 Juin 2026</td>
+                                    <td class="py-4 px-4"><span
+                                            class="bg-danger/10 text-danger px-2 py-1 rounded font-bold text-[10px] uppercase tracking-wider">Vente</span>
+                                    </td>
+                                    <td class="py-4 px-4 font-semibold text-foreground">LVMH</td>
+                                    <td class="py-4 px-4 text-right font-bold text-base text-danger tracking-tight">-
+                                        850 €</td>
+                                </tr>
+                            </tbody>
+
+                            <tbody id="history-crypto" class="history-tbody hidden text-sm">
+                                <tr class="hover:bg-muted/30 transition-colors">
+                                    <td class="py-4 px-4 font-medium text-muted-foreground text-xs">15 Fév 2026</td>
+                                    <td class="py-4 px-4"><span
+                                            class="bg-success/10 text-success px-2 py-1 rounded font-bold text-[10px] uppercase tracking-wider">Dépôt</span>
+                                    </td>
+                                    <td class="py-4 px-4 font-semibold text-foreground">Bitcoin</td>
+                                    <td class="py-4 px-4 text-right font-bold text-base text-success tracking-tight">+
+                                        200 €</td>
+                                </tr>
+                            </tbody>
+
+                            <tbody id="history-epargne" class="history-tbody hidden">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Aucun mouvement</td>
+                                </tr>
+                            </tbody>
+                            <tbody id="history-epargne-salariale" class="history-tbody hidden">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Aucun mouvement</td>
+                                </tr>
+                            </tbody>
+                            <tbody id="history-compte-courant" class="history-tbody hidden">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Aucun mouvement</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <div id="addModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-300">
+        <div onclick="closeModal()" class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"></div>
+
+        <div class="bg-card w-full max-w-md rounded-[2rem] shadow-2xl relative z-10 transform scale-95 transition-transform duration-300 border border-border"
+            id="modalContent">
+
+            <div class="px-8 pt-8 pb-4 flex justify-between items-start">
+                <div>
+                    <h2 class="text-2xl font-bold text-foreground mb-1 tracking-tight">Nouvelle opération</h2>
+                    <p class="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Saisie Manuelle</p>
+                </div>
+                <button onclick="closeModal()"
+                    class="w-8 h-8 bg-muted rounded-full flex items-center justify-center text-muted-foreground hover:bg-slate-200 transition-colors">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="p-8 space-y-6">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label
+                            class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">Poche</label>
+                        <select id="modalCategory"
+                            class="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-brand focus:ring-1 focus:ring-brand appearance-none cursor-pointer">
+                            <option value="pea">PEA</option>
+                            <option value="crypto">Crypto</option>
+                            <option value="epargne">Épargne</option>
+                            <option value="epargne-salariale">Ép. Salariale</option>
+                            <option value="compte-courant">C. Courant</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label
+                            class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">Direction</label>
+                        <select
+                            class="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-brand focus:ring-1 focus:ring-brand appearance-none cursor-pointer">
+                            <option>Achat / Dépôt</option>
+                            <option>Vente / Retrait</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label
+                        class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">Actif
+                        concerné</label>
+                    <input type="text" placeholder="Ex: Bitcoin, CW8..."
+                        class="w-full h-12 px-4 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-brand transition-colors placeholder:text-muted-foreground/50">
+                </div>
+
+                <div>
+                    <label
+                        class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">Montant
+                        (€)</label>
+                    <input type="text" placeholder="0.00"
+                        class="w-full bg-transparent border-b-2 border-border py-2 text-foreground font-bold tracking-tight text-4xl outline-none focus:border-brand transition-colors placeholder:text-muted-foreground/30">
+                </div>
+
+                <div class="pt-4">
+                    <button onclick="closeModal()"
+                        class="w-full h-14 bg-foreground text-card rounded-xl font-bold text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg shadow-slate-900/10 tracking-wide">
+                        Valider l'opération
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        // LOGIQUE D'AUTHENTIFICATION (Simulation)
+        function handleLogin(e) {
+            e.preventDefault();
+            const loginScreen = document.getElementById('loginScreen');
+            const appScreen = document.getElementById('appScreen');
+
+            loginScreen.style.opacity = '0';
+            setTimeout(() => {
+                loginScreen.classList.add('view-hidden');
+                appScreen.classList.remove('view-hidden');
+                appScreen.classList.add('fade-in');
+            }, 300);
+        }
+
+        function handleLogout() {
+            const loginScreen = document.getElementById('loginScreen');
+            const appScreen = document.getElementById('appScreen');
+
+            appScreen.style.opacity = '0';
+            setTimeout(() => {
+                appScreen.classList.add('view-hidden');
+                appScreen.style.opacity = '1';
+                loginScreen.classList.remove('view-hidden');
+                loginScreen.style.opacity = '1';
+            }, 300);
+        }
+
+        // MENU MOBILE
+        function toggleMobileMenu() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('mobileOverlay');
+
+            if (sidebar.classList.contains('-translate-x-full')) {
+                sidebar.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+                setTimeout(() => overlay.classList.remove('opacity-0'), 10);
+            } else {
+                sidebar.classList.add('-translate-x-full');
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            }
+        }
+
+        // NAVIGATION ENTRE CATÉGORIES
+        let currentActiveCategory = 'global';
+
+        function selectCategory(categoryId, categoryName) {
+            currentActiveCategory = categoryId;
+
+            // 1. Bouton actif dans la sidebar
+            document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('nav-' + categoryId).classList.add('active');
+
+            // 2. Changer le titre du graphique
+            document.getElementById('chart-title').innerText = categoryName;
+
+            // 3. Sections
+            const sectionRepartition = document.getElementById('section-repartition');
+            const sectionAssets = document.getElementById('section-assets');
+            const sectionHistory = document.getElementById('section-history');
+
+            if (categoryId === 'global') {
+                sectionRepartition.classList.remove('hidden');
+                sectionAssets.classList.add('hidden');
+                sectionHistory.classList.add('hidden');
+            } else {
+                sectionRepartition.classList.add('hidden');
+                sectionAssets.classList.remove('hidden');
+                sectionHistory.classList.remove('hidden');
+
+                // Tbody Actifs
+                document.querySelectorAll('.asset-tbody').forEach(tbody => tbody.classList.add('hidden'));
+                document.getElementById('assets-' + categoryId).classList.remove('hidden');
+
+                // Tbody Historique
+                document.querySelectorAll('.history-tbody').forEach(tbody => tbody.classList.add('hidden'));
+                document.getElementById('history-' + categoryId).classList.remove('hidden');
+            }
+
+            // Fermer mobile menu
+            if (window.innerWidth < 768) {
+                toggleMobileMenu();
+            }
+        }
+
+        // GESTION DE LA MODALE
+        const modal = document.getElementById('addModal');
+        const modalContent = document.getElementById('modalContent');
+        const modalCategorySelect = document.getElementById('modalCategory');
+
+        function openModal() {
+            if (currentActiveCategory !== 'global') {
+                modalCategorySelect.value = currentActiveCategory;
+            }
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modalContent.classList.remove('scale-95');
+            modalContent.classList.add('scale-100');
+        }
+
+        function closeModal() {
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            modalContent.classList.remove('scale-100');
+            modalContent.classList.add('scale-95');
+        }
+    </script>
+</body>
+
+</html>

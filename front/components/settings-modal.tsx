@@ -13,7 +13,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-export default function SettingsModal({ isOpen, onClose, onLogout }: any) {
+interface SettingsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onLogout: () => void;
+}
+
+export default function SettingsModal({ isOpen, onClose, onLogout }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState("account");
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -24,14 +30,13 @@ export default function SettingsModal({ isOpen, onClose, onLogout }: any) {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/auth/update-password`,
         {
           method: "PUT",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ oldPassword, newPassword }),
         },
@@ -41,8 +46,12 @@ export default function SettingsModal({ isOpen, onClose, onLogout }: any) {
       toast.success("Mot de passe mis à jour !");
       setOldPassword("");
       setNewPassword("");
-    } catch (err: any) {
-      toast.error(err.message || "Erreur de mise à jour");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        toast.error(err.message || "Erreur de mise à jour");
+      } else {
+        toast.error("Erreur de mise à jour");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -57,12 +66,11 @@ export default function SettingsModal({ isOpen, onClose, onLogout }: any) {
       return;
     setIsDeleting(true);
     try {
-      const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/auth/delete-account`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         },
       );
       if (!res.ok) throw new Error("Erreur serveur");
@@ -164,7 +172,7 @@ export default function SettingsModal({ isOpen, onClose, onLogout }: any) {
                   <div className="bg-destructive/10 text-destructive p-4 rounded-xl flex gap-3">
                     <AlertTriangle className="w-5 h-5 shrink-0" />
                     <p className="text-sm font-light">
-                      T'es sur de vouloir supprimer le compte ?
+                      T&apos;es sur de vouloir supprimer le compte ?
                     </p>
                   </div>
                   <button
