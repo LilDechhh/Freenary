@@ -45,7 +45,12 @@ export interface GlobalData {
 }
 
 export interface CategoryDetailsData {
-  totalWealth: number;
+  title?: string;
+  totalWealth?: number;
+  totalCategoryValue?: number;
+  totalGain?: number;
+  totalGainPercent?: number;
   historicalData: HistoricalDataPoint[];
   assets: Asset[];
+  transactions: Transaction[];
 }
