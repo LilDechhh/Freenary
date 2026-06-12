@@ -15,13 +15,15 @@ import type { Response } from 'express';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   private setTokenCookie(res: Response, token: string) {
     res.cookie('wealth_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax', // Permet l'envoi depuis le frontend Next.js en dev et prod
+      // secure: true est OBLIGATOIRE quand sameSite est sur 'none' (force le passage par HTTPS)
+      secure: true,
+      // sameSite: 'none' autorise le cookie à voyager entre Vercel et Heroku
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 jours
     });
   }
