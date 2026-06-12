@@ -46,8 +46,11 @@ back/
       20260608205041_add_transaction_label/
         migration.sql
       migration_lock.toml
+    import-tr.ts
     schema.prisma
+    seed-history.ts
     seed.ts
+    trade_republic_transactions.csv
   src/
     app.controller.spec.ts
     app.controller.ts
@@ -89,21 +92,34 @@ front/
     provider.tail
     provider.tsx
   components/
+    dashboard/
+      asset-table.tsx
+      global-distribution.tsx
+      portfolio-chart.tsx
+    layout/
+      header-mobile.tsx
+      sidebar.tsx
     ui/
       button.tsx
       tabs.tsx
       ThemeSwitcher.tsx
     add-transaction.tsx
     login-screen.tsx
+    privacy-toggle.tsx
     settings-modal.tsx
+    theme-toggle.tsx
   lib/
     utils.ts
   public/
+    favicon.ico
     file.svg
     globe.svg
+    icon.png
     next.svg
     vercel.svg
     window.svg
+  types/
+    index.ts
   .gitignore
   components.json
   eslint.config.mjs
@@ -112,11 +128,2143 @@ front/
   postcss.config.mjs
   README.md
   tsconfig.json
-package.json
+exempleDA.html
+trade_republic_transactions.csv
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="back/prisma/import-tr.ts">
+import { PrismaClient } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const prisma = new PrismaClient();
+
+async function main() {
+    console.log('⏳ Début de l\'importation Trade Republic...');
+
+    // 1. Récupérer un utilisateur par défaut pour l'import (Hugo)
+    // On cherche le premier utilisateur de la base pour lui attribuer les transactions
+    const user = await prisma.user.findFirst();
+    if (!user) {
+        throw new Error('❌ Aucun utilisateur trouvé en base de données. Crée d\'abord ton compte ou lance le seed.');
+    }
+    console.log(`👤 Les transactions seront attribuées à : ${user.email}`);
+
+    // 2. Localiser et lire le fichier CSV
+    const filePath = path.join(__dirname, 'trade_republic_transactions.csv');
+    const csvData = fs.readFileSync(filePath, 'utf-8');
+
+    // Découper le fichier ligne par ligne (en ignorant l'en-tête)
+    const lines = csvData.split('\n').slice(1);
+    let successCount = 0;
+
+    for (const line of lines) {
+        if (!line.trim()) continue;
+
+        // Extraire les colonnes (timestamp;title;subtitle;amount.value)
+        const [timestamp, title, subtitle, amountValue] = line.split(';');
+
+        // Si la colonne du montant est vide, on passe
+        if (!amountValue) continue;
+        const amount = parseFloat(amountValue.replace(',', '.'));
+
+        // 3. Filtrer uniquement les achats/ventes d'actions ou d'ETF
+        if (subtitle === 'Achat' || subtitle === 'Exécution d\'un plan d\'investissement' || subtitle === 'Vente') {
+            const isVente = subtitle === 'Vente';
+            const typeTransaction = isVente ? 'vente' : 'achat';
+
+            // 4. Gérer l'Actif (Asset) : on le cherche ou on le crée s'il n'existe pas
+            let asset = await prisma.asset.findFirst({
+                where: {
+                    name: title,
+                    userId: user.id
+                },
+            });
+
+            if (!asset) {
+                // Si l'actif n'existe pas encore dans ton portefeuille, on le crée avec des valeurs par défaut à 0
+                asset = await prisma.asset.create({
+                    data: {
+                        name: title,        // ex: "Apple"
+                        category: 'pea',
+                        userId: user.id,
+                        totalValue: 0,      // 🌟 NOUVEAU : Valeur par défaut obligatoire réclamée par Prisma
+
+                        // 💡 Note : Si TypeScript te réclame d'autres erreurs après avoir enregistré, 
+                        // ajoute-les simplement ici à 0 (ex: quantity: 0, ou totalAmount: 0)
+                    },
+                });
+            }
+
+            // 5. Créer la transaction liée à l'actif et à l'utilisateur
+            await prisma.transaction.create({
+                data: {
+                    date: new Date(timestamp.split('/').reverse().join('-')),
+                    category: 'pea',
+                    type: typeTransaction,
+                    amount: Math.abs(amount), // Toujours positif en BDD, le type fait la différence
+                    label: subtitle,          // "Achat" ou "Plan d'investissement"
+                    assetId: asset.id,        // Liaison avec l'actif
+                    userId: user.id,          // Liaison avec l'utilisateur
+                },
+            });
+
+            successCount++;
+        }
+    }
+
+    console.log(`\n🎉 Importation réussie ! ${successCount} transactions liées au PEA ont été ajoutées.`);
+}
+
+main()
+    .catch((e) => {
+        console.error('❌ Erreur lors de l\'importation :', e);
+        process.exit(1);
+    })
+    .finally(async () => {
+        await prisma.$disconnect();
+    });
+</file>
+
+<file path="back/prisma/seed-history.ts">
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+async function main() {
+  console.log('🌱 Début du script de génération d\'historique...');
+
+  // 1. Récupérer le premier utilisateur (ou tous)
+  const users = await prisma.user.findMany();
+  if (users.length === 0) {
+    console.log('❌ Aucun utilisateur trouvé dans la base de données. Exécutez d\'abord le seed initial ou inscrivez-vous.');
+    return;
+  }
+
+  for (const user of users) {
+    console.log(`👤 Génération pour l'utilisateur ${user.email} (${user.id})`);
+
+    // 1.5 Ajouter des transactions de démonstration s'ils n'ont rien (ou peu)
+    const existingTransactions = await prisma.transaction.count({ where: { userId: user.id } });
+    if (existingTransactions < 3) {
+      console.log(`📊 Ajout de données de démonstration pour ${user.email}...`);
+
+      const dateNow = new Date();
+      
+      // Compte courant
+      const ccAsset = await prisma.asset.create({
+        data: { name: 'BNP Paribas', category: 'compte-courant', totalValue: 2500, quantity: 0, userId: user.id }
+      });
+      await prisma.transaction.create({
+        data: { type: 'dépôt', category: 'compte-courant', amount: 2500, quantity: 0, date: new Date(dateNow.getTime() - 86400000 * 60), label: 'Salaire', assetId: ccAsset.id, userId: user.id }
+      });
+
+      // Livret A
+      const epAsset = await prisma.asset.create({
+        data: { name: 'Livret A', category: 'epargne', totalValue: 5000, quantity: 0, userId: user.id }
+      });
+      await prisma.transaction.create({
+        data: { type: 'dépôt', category: 'epargne', amount: 5000, quantity: 0, date: new Date(dateNow.getTime() - 86400000 * 45), label: 'Virement', assetId: epAsset.id, userId: user.id }
+      });
+
+      // Crypto (BTC)
+      const btcAsset = await prisma.asset.create({
+        data: { name: 'BTC', category: 'crypto', totalValue: 1000, quantity: 0.015, userId: user.id }
+      });
+      await prisma.transaction.create({
+        data: { type: 'achat', category: 'crypto', amount: 1000, quantity: 0.015, date: new Date(dateNow.getTime() - 86400000 * 30), label: 'DCA Crypto', assetId: btcAsset.id, userId: user.id }
+      });
+
+      // PEA (LVMH)
+      const peaAsset = await prisma.asset.create({
+        data: { name: 'MC.PA', category: 'pea', totalValue: 800, quantity: 1, userId: user.id }
+      });
+      await prisma.transaction.create({
+        data: { type: 'achat', category: 'pea', amount: 800, quantity: 1, date: new Date(dateNow.getTime() - 86400000 * 15), label: 'Achat', assetId: peaAsset.id, userId: user.id }
+      });
+    }
+
+    // 2. Calculer une valeur de base "actuelle" approximative pour créer un historique cohérent
+    const assets = await prisma.asset.findMany({
+      where: { userId: user.id },
+    });
+    
+    const currentWealth = assets.reduce((sum, asset) => sum + asset.totalValue, 0);
+    const baseValue = currentWealth > 0 ? currentWealth : 10000;
+
+    const categoriesMap = new Map<string, number>();
+    for (const asset of assets) {
+      const cat = asset.category.toLowerCase();
+      categoriesMap.set(cat, (categoriesMap.get(cat) || 0) + asset.totalValue);
+    }
+    
+    const previousValues = new Map<string, number>();
+    for (const [cat, val] of categoriesMap.entries()) {
+      previousValues.set(cat, val * 0.8); // 20% plus bas il y a 3 mois
+    }
+
+    // 3. Générer 90 jours d'historique (environ 3 mois)
+    const today = new Date();
+    
+    // On nettoie l'ancien historique pour cet utilisateur
+    await prisma.historicalData.deleteMany({
+      where: { userId: user.id }
+    });
+
+    let previousGlobalValue = baseValue * 0.8;
+
+    for (let i = 90; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+
+      // Simuler une variation quotidienne (entre -1% et +1.2%) globale
+      const variation = (Math.random() * 2.2 - 1) / 100; 
+      previousGlobalValue = previousGlobalValue * (1 + variation);
+      
+      if (i === 0) {
+        previousGlobalValue = currentWealth > 0 ? currentWealth : previousGlobalValue;
+      }
+
+      await prisma.historicalData.create({
+        data: {
+          date: dateStr,
+          value: parseFloat(previousGlobalValue.toFixed(2)),
+          userId: user.id,
+          category: null
+        }
+      });
+
+      for (const [cat, val] of previousValues.entries()) {
+         const catVariation = (Math.random() * 3 - 1.2) / 100; // Catégorie un peu plus volatile
+         let nextVal = val * (1 + catVariation);
+         if (i === 0) nextVal = categoriesMap.get(cat) || nextVal;
+         previousValues.set(cat, nextVal);
+         await prisma.historicalData.create({
+           data: { 
+             date: dateStr, 
+             value: parseFloat(nextVal.toFixed(2)), 
+             userId: user.id, 
+             category: cat 
+           }
+         });
+      }
+    }
+    console.log(`✅ 90 jours d'historique (Global + ${categoriesMap.size} Catégories) générés pour ${user.email}`);
+  }
+
+  console.log('🎉 Seed d\'historique terminé !');
+}
+
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
+</file>
+
+<file path="back/prisma/trade_republic_transactions.csv">
+timestamp;title;subtitle;amount.value;amount.fractionDigits;subAmount.value;subAmount.fractionDigits
+09/06/2026;Api Restauration;;-9,69;2;;
+09/06/2026;STMicroelectronics;Round up;-1,8;2;;
+08/06/2026;Api Restauration;;-7,43;2;;
+07/06/2026;HUGO DECHAUX;Envoyé;-10,0;2;;
+06/06/2026;KFC;;-16,4;2;;
+05/06/2026;Boulangerie Ange;;-10,5;2;;
+03/06/2026;StackSocial;;-165,3;2;-191,96;2,0
+03/06/2026;StackCommerce;Vérification de la carte;0,0;2;;
+03/06/2026;M. HUGO DECHAUX;Terminé;200,0;2;;
+03/06/2026;Boulangerie Ange;;-12,4;2;;
+02/06/2026;Stoxx Europe 600 EUR (acc);PEA;-41,04;2;;
+02/06/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-41,04;2;;
+02/06/2026;MSCI World Swap PEA EUR (Acc);PEA;-74,81;2;;
+02/06/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-37,08;2;;
+02/06/2026;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-74,81;2;;
+02/06/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-37,08;2;;
+01/06/2026;Intérêts;;0,62;2;;
+28/05/2026;Carrefour;;-177,81;2;;
+25/05/2026;ALST*fitfashionlab;;-91,76;2;-106,32;2,0
+19/05/2026;ISMAEL LIDOT;Envoyé;-40,0;2;;
+19/05/2026;PAYPAL *ismael.lidot91;;-40,0;2;;
+04/05/2026;Stoxx Europe 600 EUR (acc);PEA;-39,72;2;;
+04/05/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-39,72;2;;
+04/05/2026;MSCI World Swap PEA EUR (Acc);PEA;-77,64;2;;
+04/05/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-67,21;2;;
+04/05/2026;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-77,64;2;;
+04/05/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-67,21;2;;
+01/05/2026;Intérêts;2 % p.a.;0,44;2;;
+22/04/2026;PayPal;Vérification de la carte;0,0;2;;
+21/04/2026;Banco Cetelem;Annulée;-474,75;2;;
+21/04/2026;Banco Cetelem;Vérification de la carte;0,0;2;;
+21/04/2026;Banco Cetelem;Annulée;-474,75;2;;
+21/04/2026;MR OU MME DECHAUX;Terminé;180,0;2;;
+21/04/2026;Banco Cetelem;Vérification de la carte;0,0;2;;
+21/04/2026;M. HUGO DECHAUX;Terminé;250,0;2;;
+18/04/2026;Rakuten;;-0,9;2;;
+18/04/2026;VPG LIMONETIK;;250,0;2;;
+06/04/2026;VPG LIMONETIK;;-250,0;2;;
+06/04/2026;M. HUGO DECHAUX;Terminé;250,0;2;;
+02/04/2026;Stoxx Europe 600 EUR (acc);PEA;-38,27;2;;
+02/04/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-38,27;2;;
+02/04/2026;MSCI World Swap PEA EUR (Acc);PEA;-78,07;2;;
+02/04/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-59,31;2;;
+02/04/2026;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-78,07;2;;
+02/04/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-59,31;2;;
+01/04/2026;Intérêts;2 % p.a.;0,29;2;;
+30/03/2026;AXS;Vérification de la carte;0,0;2;;
+02/03/2026;Stoxx Europe 600 EUR (acc);PEA;-40,27;2;;
+02/03/2026;MSCI World Swap PEA EUR (Acc);PEA;-74,45;2;;
+02/03/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-40,27;2;;
+02/03/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-63,53;2;;
+02/03/2026;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-74,45;2;;
+02/03/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-63,53;2;;
+01/03/2026;M. HUGO DECHAUX;Terminé;300,0;2;;
+01/03/2026;Intérêts;2 % p.a.;0,15;2;;
+13/02/2026;Mol*MAXESPORT;;-23,85;2;;
+13/02/2026;Google;Annulée;-1,24;2;-2,0;2,0
+02/02/2026;Stoxx Europe 600 EUR (acc);PEA;-39,68;2;;
+02/02/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-39,68;2;;
+02/02/2026;MSCI World Swap PEA EUR (Acc);PEA;-79,87;2;;
+02/02/2026;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-79,87;2;;
+02/02/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-60,12;2;;
+02/02/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-60,12;2;;
+01/02/2026;M. HUGO DECHAUX;Terminé;300,0;2;;
+01/02/2026;Intérêts;2 % p.a.;0,08;2;;
+09/01/2026;Sushia;;-10,12;2;-17,57;2,0
+08/01/2026;Gifts At The QuayAUSTRALI;;-14,45;2;-24,99;2,0
+07/01/2026;MINGARA REC CLUB 1;Retrait;-37,8;2;;
+06/01/2026;MINGARA REC CLUB 1;Retrait;-37,73;2;;
+06/01/2026;The Entrance Hotel;;-14,81;2;-25,8;2,0
+05/01/2026;Port Stephens;;-3,39;2;-5,92;2,0
+03/01/2026;The Royal Hotel;;-62,79;2;-109,73;2,0
+02/01/2026;Stoxx Europe 600 EUR (acc);PEA;-19,24;2;;
+02/01/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-19,24;2;;
+02/01/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-29,26;2;;
+02/01/2026;MSCI World Swap PEA EUR (Acc);Échec du plan d'épargne;-40,0;2;;
+02/01/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-29,26;2;;
+02/01/2026;Featherdale Wildlife Park;;-19,09;2;-33,47;2,0
+01/01/2026;Intérêts;2 % p.a.;0,06;2;;
+30/12/2025;Coco Nine Kingston;;-77,48;2;-135,5;2,0
+30/12/2025;AUSTRALIAN CHOICE PT;;-14,27;2;-24,95;2,0
+30/12/2025;M. HUGO DECHAUX;Terminé;300,0;2;;
+28/12/2025;Souvenir Plus;;-34,74;2;-60,75;2,0
+23/12/2025;SNCF;;-22,5;2;;
+22/12/2025;APRR | AREA France;;-22,9;2;;
+22/12/2025;M. HUGO DECHAUX;Terminé;150,0;2;;
+17/12/2025;Château de Saulon;;-116,0;2;;
+17/12/2025;M. HUGO DECHAUX;Terminé;100,0;2;;
+17/12/2025;Boulangerie Ange;;-9,9;2;;
+16/12/2025;American Dream;;-104,9;2;;
+16/12/2025;Lego;;-56,98;2;;
+16/12/2025;Darty;;-95,28;2;;
+16/12/2025;M. HUGO DECHAUX;Terminé;200,0;2;;
+15/12/2025;Boulangerie Ange;;-9,8;2;;
+13/12/2025;Ekin 21;;-13,5;2;;
+13/12/2025;M. HUGO DECHAUX;Terminé;100,0;2;;
+13/12/2025;GlobalE /Rare Beauty;;-66,0;2;;
+02/12/2025;Stoxx Europe 600 EUR (acc);PEA;-18,62;2;;
+02/12/2025;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-18,62;2;;
+02/12/2025;MSCI World Swap PEA EUR (Acc);PEA;-36,58;2;;
+02/12/2025;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-28,29;2;;
+02/12/2025;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-36,58;2;;
+02/12/2025;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-28,29;2;;
+03/11/2025;Stoxx Europe 600 EUR (acc);PEA;-18,49;2;;
+03/11/2025;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-18,49;2;;
+03/11/2025;MSCI World Swap PEA EUR (Acc);PEA;-37,01;2;;
+03/11/2025;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-29,26;2;;
+03/11/2025;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-37,01;2;;
+03/11/2025;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-29,26;2;;
+01/11/2025;M. HUGO DECHAUX;Terminé;200,0;2;;
+02/10/2025;Stoxx Europe 600 EUR (acc);PEA;-18,33;2;;
+02/10/2025;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-18,33;2;;
+02/10/2025;MSCI World Swap PEA EUR (Acc);PEA;-35,7;2;;
+02/10/2025;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-28,04;2;;
+02/10/2025;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-35,7;2;;
+02/10/2025;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-28,04;2;;
+01/10/2025;M. HUGO DECHAUX;Terminé;100,0;2;;
+02/09/2025;Stoxx Europe 600 EUR (acc);PEA;-17,55;2;;
+02/09/2025;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-17,55;2;;
+02/09/2025;MSCI World Swap PEA EUR (Acc);PEA;-34,46;2;;
+02/09/2025;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-24,92;2;;
+02/09/2025;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-34,46;2;;
+02/09/2025;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-25,92;2;;
+11/08/2025;Activation du PEA;;1,0;2;;
+08/08/2025;M. HUGO DECHAUX;Terminé;100,0;2;;
+</file>
+
+<file path="front/components/dashboard/asset-table.tsx">
+"use client";
+
+import { Plus, Pencil, Trash2 } from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
+import { usePrivacy } from "@/app/provider";
+import { CategoryDetailsData, Asset, Transaction } from "@/types";
+import { useState, useEffect } from "react";
+
+const getInitialLogoUrl = (category: string, name: string) => {
+  if (["epargne", "compte-courant", "epargne-salariale"].includes(category)) return "";
+  if (category === "crypto") {
+    const cryptoTickers: Record<string, string> = {
+      bitcoin: "btc", btc: "btc",
+      ethereum: "eth", eth: "eth",
+      solana: "sol", sol: "sol",
+      binancecoin: "bnb", bnb: "bnb",
+      cardano: "ada", ada: "ada",
+      ripple: "xrp", xrp: "xrp",
+      polkadot: "dot", dot: "dot",
+      dogecoin: "doge", doge: "doge",
+      avalanche: "avax", avax: "avax",
+      matic: "matic",
+      tether: "usdt", usdt: "usdt"
+    };
+    const ticker = cryptoTickers[name.toLowerCase()];
+    if (ticker) return `https://cdn.jsdelivr.net/gh/atomiclabs/cryptocurrency-icons@1a63530be6e374711a8554f31b17e4cb92c25fa5/128/color/${ticker}.png`;
+  } else if (category === "pea") {
+    return `https://assets.parqet.com/logos/symbol/${name.split('.')[0]}?format=png`;
+  }
+  return "";
+};
+
+const AssetLogo = ({ asset }: { asset: any }) => {
+  const name = asset.displayName || asset.name;
+  
+  const initialUrl = getInitialLogoUrl(asset.category, asset.name);
+  const [imgSrc, setImgSrc] = useState<string>(initialUrl);
+  const [fallbackStep, setFallbackStep] = useState(initialUrl ? 0 : 99);
+
+  useEffect(() => {
+    const url = getInitialLogoUrl(asset.category, asset.name);
+    setImgSrc(url);
+    setFallbackStep(url ? 0 : 99);
+  }, [asset.category, asset.name]);
+
+  const handleError = () => {
+    if (fallbackStep === 0 && asset.category === "pea") {
+      setImgSrc(`https://financialmodelingprep.com/image-stock/${asset.name}.png`);
+      setFallbackStep(1);
+    } else if (fallbackStep === 1 && asset.category === "pea") {
+      setImgSrc(`https://logo.clearbit.com/${asset.name.split('.')[0].toLowerCase()}.com`);
+      setFallbackStep(2);
+    } else {
+      setFallbackStep(99);
+    }
+  };
+
+  if (fallbackStep >= 99 || !imgSrc) {
+    return (
+      <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+        {name.charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imgSrc}
+      alt={name}
+      className="w-8 h-8 rounded-full object-cover shrink-0 bg-muted"
+      onError={handleError}
+    />
+  );
+};
+
+interface AssetTableProps {
+  categoryData: CategoryDetailsData | null;
+  isFixedAsset: boolean;
+  onAddTransaction: (asset?: { ticker: string; name: string }) => void;
+  onEditTransaction: (tx: Transaction) => void;
+  onDeleteTransaction: (id: string) => void;
+}
+
+export default function AssetTable({
+  categoryData,
+  isFixedAsset,
+  onAddTransaction,
+  onEditTransaction,
+  onDeleteTransaction,
+}: AssetTableProps) {
+  const { isPrivacyMode } = usePrivacy();
+
+  return (
+    <>
+      {/* POSITIONS ACTIVES */}
+      <section className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-4">
+        <div className="flex justify-between items-center mb-4 px-1">
+          <h2 className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">
+            Positions Actives
+          </h2>
+          <button
+            onClick={() => onAddTransaction()}
+            className="text-[10px] font-bold text-primary hover:opacity-80 transition-opacity uppercase tracking-[0.1em] flex items-center gap-1"
+          >
+            <Plus className="w-3 h-3" /> Ajouter
+          </button>
+        </div>
+
+        <div className="bg-card border border-border rounded-2xl shadow-sm overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[500px]">
+            <thead>
+              <tr className="border-b border-border bg-muted/30 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                <th className="py-3 px-4 font-bold">Actif</th>
+                {!isFixedAsset && (
+                  <th className="py-3 px-4 font-bold text-right hidden sm:table-cell">
+                    Quantité
+                  </th>
+                )}
+                {!isFixedAsset && (
+                  <th className="py-3 px-4 font-bold text-right">PRU / Prix</th>
+                )}
+                <th className="py-3 px-4 font-bold text-right">Valeur</th>
+                {!isFixedAsset && (
+                  <th className="py-3 px-4 font-bold text-right w-10"></th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="text-sm">
+              {categoryData?.assets && categoryData.assets.length > 0 ? (
+                categoryData.assets.map((asset: any) => (
+                  <tr
+                    key={asset.id}
+                    className="border-b border-border hover:bg-muted/30 transition-colors group cursor-pointer"
+                    onClick={() => {
+                      if (isFixedAsset) {
+                        onAddTransaction({ ticker: asset.name, name: asset.displayName || asset.name });
+                      }
+                    }}
+                  >
+                    <td className="py-4 px-4 font-semibold flex items-center gap-3">
+                      <AssetLogo asset={asset} />
+                      <div className="flex flex-col">
+                        <span className="flex items-center gap-2">
+                          {asset.displayName || asset.name}
+                          {asset.displayName && asset.displayName !== asset.name && (
+                            <span className="text-muted-foreground text-[10px] font-bold bg-muted px-2 py-0.5 rounded">
+                              {asset.name}
+                            </span>
+                          )}
+                        </span>
+                        {isFixedAsset && (
+                          <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 mt-1">
+                            <Pencil className="w-3 h-3" /> Éditer
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    {!isFixedAsset && (
+                      <td className="py-4 px-4 text-right font-medium text-muted-foreground hidden sm:table-cell">
+                        {formatCurrency(asset.quantity, isPrivacyMode, 4)}
+                      </td>
+                    )}
+                    {!isFixedAsset && (
+                      <td className="py-4 px-4 text-right font-medium text-muted-foreground">
+                        {formatCurrency(asset.pru, isPrivacyMode)} €<br />
+                        <span className="text-xs italic">
+                          ({formatCurrency(asset.currentPrice, isPrivacyMode)} €)
+                        </span>
+                      </td>
+                    )}
+                    <td className="py-4 px-4 text-right font-bold text-base text-foreground tracking-tight">
+                      {formatCurrency(asset.currentValue, isPrivacyMode)} €
+                    </td>
+                    {!isFixedAsset && (
+                      <td className="py-4 px-4 text-right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAddTransaction({ ticker: asset.name, name: asset.displayName || asset.name });
+                          }}
+                          className="text-muted-foreground hover:text-primary transition-colors p-1"
+                          title="Ajouter une transaction pour cet actif"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              ) : (
+                <tr className="text-center">
+                  <td colSpan={4} className="py-8 font-medium text-muted-foreground">
+                    Aucun actif trouvé.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* HISTORIQUE */}
+      {categoryData?.transactions && categoryData.transactions.length > 0 && (
+        <section className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100 space-y-4">
+          <h2 className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-1">
+            Historique des transactions
+          </h2>
+          <div className="bg-card border border-border rounded-2xl shadow-sm overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[500px]">
+              <thead>
+                <tr className="border-b border-border bg-muted/30 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                  <th className="py-3 px-4 font-bold">Date</th>
+                  <th className="py-3 px-4 font-bold">Type</th>
+                  <th className="py-3 px-4 font-bold">Actif</th>
+                  <th className="py-3 px-4 font-bold text-right">Montant</th>
+                  <th className="py-3 px-4 font-bold text-right w-10"></th>
+                </tr>
+              </thead>
+              <tbody className="text-sm">
+                {categoryData.transactions.map((tx: any) => {
+                  const isAchat = ["achat", "dépôt", "in", "intérêts", "dividendes"].includes(
+                    tx.type.toLowerCase()
+                  );
+                  const isUpdate =
+                    tx.type.toLowerCase() === "ajustement" ||
+                    tx.type.toLowerCase() === "update_balance";
+
+                  return (
+                    <tr
+                      key={tx.id}
+                      className="border-b border-border hover:bg-muted/30 transition-colors"
+                    >
+                      <td className="py-4 px-4 font-medium text-muted-foreground text-xs">
+                        {new Date(tx.date).toLocaleDateString("fr-FR", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                        {tx.updatedAt &&
+                          tx.createdAt &&
+                          new Date(tx.updatedAt).getTime() - new Date(tx.createdAt).getTime() >
+                            1000 && (
+                            <span
+                              className="ml-2 italic text-[9px] text-primary/70 font-bold"
+                              title="Transaction modifiée"
+                            >
+                              (Modifié)
+                            </span>
+                          )}
+                      </td>
+                      <td className="py-4 px-4">
+                        <span
+                          className={`px-2 py-1 rounded font-bold text-[10px] uppercase tracking-wider ${
+                            isUpdate
+                              ? "bg-primary/10 text-primary"
+                              : isAchat
+                              ? "bg-success/10 text-success"
+                              : "bg-destructive/10 text-destructive"
+                          }`}
+                        >
+                          {tx.type}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4 font-semibold text-foreground">
+                        {tx.assetName}
+                        {tx.label && (
+                          <span className="text-muted-foreground ml-2 text-[10px] font-bold bg-muted px-2 py-0.5 rounded">
+                            {tx.label}
+                          </span>
+                        )}
+                      </td>
+                      <td
+                        className={`py-4 px-4 text-right font-bold text-base tracking-tight ${
+                          isUpdate
+                            ? "text-foreground"
+                            : isAchat
+                            ? "text-success"
+                            : "text-destructive"
+                        }`}
+                      >
+                        {isAchat ? "+" : isUpdate ? (tx.amount >= 0 ? "+" : "") : "-"}
+                        {formatCurrency(Math.abs(tx.amount), isPrivacyMode)} €
+                      </td>
+                      <td className="py-4 px-4 text-right flex justify-end gap-1">
+                        <button
+                          onClick={() => onEditTransaction(tx)}
+                          className="text-muted-foreground hover:text-primary transition-colors p-1"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => onDeleteTransaction(tx.id)}
+                          className="text-muted-foreground hover:text-destructive transition-colors p-1"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+</file>
+
+<file path="front/components/dashboard/global-distribution.tsx">
+"use client";
+
+import { GlobalData } from "@/types";
+
+interface GlobalDistributionProps {
+  globalData: GlobalData;
+}
+
+export default function GlobalDistribution({ globalData }: GlobalDistributionProps) {
+  const categoryColors: Record<string, string> = {
+    "EPARGNE-SALARIALE": "bg-donut-pink",
+    EPARGNE: "bg-donut-purple",
+    CRYPTO: "bg-donut-orange",
+    PEA: "bg-donut-blue",
+    "COMPTE COURANT": "bg-donut-green",
+  };
+  const categoryHexColors: Record<string, string> = {
+    "EPARGNE-SALARIALE": "#ec4899",
+    EPARGNE: "#8b5cf6",
+    CRYPTO: "#f59e0b",
+    PEA: "#3b82f6",
+    "COMPTE COURANT": "#10b981",
+  };
+
+  const totalDistribution = globalData.distribution.reduce((acc, item) => acc + item.value, 0);
+  let currentOffset = 0;
+  const svgSegments = globalData.distribution.map((item) => {
+    const percent = totalDistribution > 0 ? (item.value / totalDistribution) * 100 : 0;
+    const strokeDasharray = `${percent} ${100 - percent}`;
+    const offset = -currentOffset;
+    currentOffset += percent;
+    return { ...item, strokeDasharray, offset, percent };
+  });
+
+  return (
+    <section className="animate-in fade-in slide-in-from-bottom-4 duration-500 bg-card border border-border rounded-[2rem] p-6 lg:p-8 shadow-sm">
+      <h2 className="text-sm font-bold text-muted-foreground mb-8 uppercase tracking-wide">
+        Répartition réelle
+      </h2>
+      <div className="flex flex-col md:flex-row items-center justify-center md:justify-start gap-8 lg:gap-16">
+        <div className="relative w-48 h-48 shrink-0">
+          <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90 drop-shadow-sm">
+            <circle
+              cx="18"
+              cy="18"
+              r="15.915"
+              fill="transparent"
+              className="stroke-muted"
+              strokeWidth="4"
+            ></circle>
+            {svgSegments.map((seg, idx) => (
+              <circle
+                key={idx}
+                cx="18"
+                cy="18"
+                r="15.915"
+                fill="transparent"
+                strokeWidth="4"
+                strokeDasharray={seg.strokeDasharray}
+                strokeDashoffset={seg.offset}
+                className={`transition-all duration-1000 ease-out hover:stroke-[5px] cursor-pointer`}
+                style={{
+                  stroke: categoryHexColors[seg.name] || "#94a3b8",
+                }}
+              ></circle>
+            ))}
+          </svg>
+        </div>
+        <div className="w-full max-w-sm space-y-3">
+          {svgSegments.map((seg, idx) => (
+            <div key={idx} className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-3 h-3 rounded-full ${
+                    categoryColors[seg.name] || "bg-slate-400 dark:bg-slate-600"
+                  }`}
+                ></div>
+                <span className="text-sm font-semibold text-muted-foreground uppercase">
+                  {seg.name}
+                </span>
+              </div>
+              <span className="text-sm font-bold text-foreground">
+                {Math.round(seg.percent)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+</file>
+
+<file path="front/components/dashboard/portfolio-chart.tsx">
+"use client";
+
+import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { formatCurrency } from "@/lib/utils";
+import { GlobalData, CategoryDetailsData } from "@/types";
+import { usePrivacy } from "@/app/provider";
+
+interface PortfolioChartProps {
+  currentCategory: string;
+  categoryName: string;
+  globalData: GlobalData;
+  categoryData: CategoryDetailsData | null;
+  isToTheMoon?: boolean;
+}
+
+export default function PortfolioChart({
+  currentCategory,
+  categoryName,
+  globalData,
+  categoryData,
+  isToTheMoon,
+}: PortfolioChartProps) {
+  const { isPrivacyMode } = usePrivacy();
+
+  let dataToDisplay =
+    currentCategory === "global" ? globalData.historicalData : categoryData?.historicalData || [];
+
+  // Effet Easter Egg : To The Moon 🚀
+  if (isToTheMoon && dataToDisplay.length > 0) {
+    const lastValue = dataToDisplay[dataToDisplay.length - 1].value || 1000;
+    dataToDisplay = [
+      ...dataToDisplay,
+      { date: "Ignition", value: lastValue * 1.5 },
+      { date: "Liftoff", value: lastValue * 3 },
+      { date: "Orbit", value: lastValue * 8 },
+      { date: "Moon", value: lastValue * 20 },
+    ];
+  }
+
+  return (
+    <section className="h-[35vh] lg:h-[40vh] border-b border-border bg-card relative flex items-end p-6 lg:p-8 overflow-hidden">
+      <div className="absolute top-6 left-6 lg:top-8 lg:left-8 z-10 bg-card/80 backdrop-blur px-4 py-2 rounded-xl shadow-sm border border-border">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-1">
+          Performance
+        </p>
+        <p className="font-bold tracking-tight text-2xl lg:text-3xl text-foreground capitalize">
+          {categoryName}
+        </p>
+      </div>
+
+      {/* Lignes de fond SVG */}
+      <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-50 dark:opacity-20">
+        <line
+          x1="0"
+          y1="25%"
+          x2="100%"
+          y2="25%"
+          stroke="currentColor"
+          className="text-muted"
+          strokeWidth="1"
+          strokeDasharray="4 4"
+        />
+        <line
+          x1="0"
+          y1="50%"
+          x2="100%"
+          y2="50%"
+          stroke="currentColor"
+          className="text-border"
+          strokeWidth="1"
+          strokeDasharray="4 4"
+        />
+        <line
+          x1="0"
+          y1="75%"
+          x2="100%"
+          y2="75%"
+          stroke="currentColor"
+          className="text-muted"
+          strokeWidth="1"
+          strokeDasharray="4 4"
+        />
+      </svg>
+
+      {/* Graphique Recharts */}
+      <div className="absolute inset-0 pt-20 pb-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={dataToDisplay}>
+            <defs>
+              <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#4f46e5" stopOpacity={0.15} />
+                <stop offset="100%" stopColor="#4f46e5" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <XAxis dataKey="date" hide={true} />
+            <Tooltip
+              content={({ active, payload, label }) => {
+                if (active && payload && payload.length) {
+                  return (
+                    <div className="bg-card/90 backdrop-blur border border-border p-3 rounded-xl shadow-xl">
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-1">
+                        {label}
+                      </p>
+                      <p className="text-lg font-bold text-foreground tracking-tight">
+                        {formatCurrency(payload[0].value as number, isPrivacyMode)} €
+                      </p>
+                    </div>
+                  );
+                }
+                return null;
+              }}
+              cursor={{
+                stroke: "currentColor",
+                strokeWidth: 1,
+                strokeDasharray: "4 4",
+                opacity: 0.2,
+              }}
+            />
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke="#4f46e5"
+              strokeWidth={2.5}
+              fill="url(#chartGradient)"
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </section>
+  );
+}
+</file>
+
+<file path="front/components/layout/header-mobile.tsx">
+"use client";
+
+import { Menu } from "lucide-react";
+import PrivacyToggle from "@/components/privacy-toggle";
+import ThemeToggle from "@/components/theme-toggle";
+
+interface HeaderMobileProps {
+  isMobileMenuOpen: boolean;
+  setIsMobileMenuOpen: (isOpen: boolean) => void;
+}
+
+export default function HeaderMobile({ isMobileMenuOpen, setIsMobileMenuOpen }: HeaderMobileProps) {
+  return (
+    <header className="md:hidden bg-card border-b border-border flex items-center justify-between p-4 z-40 relative shrink-0">
+      <div className="flex items-center gap-2">
+        <div className="w-3 h-3 bg-primary rounded-full"></div>
+        <span className="font-bold tracking-widest text-sm uppercase text-foreground">Freenary</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <PrivacyToggle />
+        <ThemeToggle />
+        <button
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 text-muted-foreground bg-muted rounded-lg transition-colors"
+          aria-label="Menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+      </div>
+    </header>
+  );
+}
+</file>
+
+<file path="front/components/layout/sidebar.tsx">
+"use client";
+
+import { useState } from "react";
+import { LogOut, PieChart as PieChartIcon, Menu } from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
+import { usePrivacy } from "@/app/provider";
+import PrivacyToggle from "@/components/privacy-toggle";
+import ThemeToggle from "@/components/theme-toggle";
+import { GlobalData } from "@/types";
+
+interface SidebarProps {
+  globalData: GlobalData;
+  currentCategory: string;
+  onCategorySelect: (category: string) => void;
+  isMobileMenuOpen: boolean;
+  onLogout: () => void;
+  onToTheMoon: () => void;
+}
+
+export default function Sidebar({
+  globalData,
+  currentCategory,
+  onCategorySelect,
+  isMobileMenuOpen,
+  onLogout,
+  onToTheMoon,
+}: SidebarProps) {
+  const { isPrivacyMode } = usePrivacy();
+  const [cryptoClicks, setCryptoClicks] = useState(0);
+  const [lastClickTime, setLastClickTime] = useState(0);
+
+  // Couleurs pour les catégories
+  const categoryColors: Record<string, string> = {
+    "EPARGNE-SALARIALE": "bg-donut-pink",
+    EPARGNE: "bg-donut-purple",
+    CRYPTO: "bg-donut-orange",
+    PEA: "bg-donut-blue",
+    "COMPTE COURANT": "bg-donut-green",
+  };
+  const categorySlugs: Record<string, string> = {
+    "EPARGNE-SALARIALE": "epargne-salariale",
+    EPARGNE: "epargne",
+    CRYPTO: "crypto",
+    PEA: "pea",
+    "COMPTE COURANT": "compte-courant",
+  };
+
+  const handleCategoryClick = (id: string, name: string) => {
+    onCategorySelect(id);
+    if (name.toUpperCase() === "CRYPTO" || id === "crypto") {
+      const now = Date.now();
+      if (now - lastClickTime < 500) {
+        const newCount = cryptoClicks + 1;
+        setCryptoClicks(newCount);
+        if (newCount >= 4) {
+          onToTheMoon();
+          setCryptoClicks(0);
+        }
+      } else {
+        setCryptoClicks(1);
+      }
+      setLastClickTime(now);
+    }
+  };
+
+  const renderNavItem = (
+    name: string,
+    value: number | null,
+    isActive: boolean,
+    isGlobal = false,
+    id: string
+  ) => {
+    const colorClass = categoryColors[name] || "bg-slate-400 dark:bg-slate-600";
+    return (
+      <button
+        key={id}
+        onClick={() => handleCategoryClick(id, name)}
+        className={`w-full flex items-center group cursor-pointer text-left py-3 px-4 transition-colors ${
+          isActive
+            ? "border-l-[3px] border-primary bg-muted rounded-r-xl"
+            : "border-l-[3px] border-transparent hover:bg-muted/50 rounded-r-xl"
+        }`}
+      >
+        {isGlobal ? (
+          <>
+            <PieChartIcon
+              className={`w-4 h-4 mr-3 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`}
+            />
+            <span
+              className={`text-sm font-bold ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`}
+            >
+              Vue Globale
+            </span>
+          </>
+        ) : (
+          <>
+            <span
+              className={`text-sm font-semibold flex items-center gap-2 ${
+                isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${colorClass}`}></span> {name}
+            </span>
+            <div
+              className={`grow border-b-2 border-dotted mx-3 relative -top-1 transition-colors ${
+                isActive
+                  ? "border-primary/30"
+                  : "border-slate-300 dark:border-slate-700 group-hover:border-slate-400 dark:group-hover:border-slate-600"
+              }`}
+            ></div>
+            <span
+              className={`text-sm font-bold tracking-tight ${
+                isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+              }`}
+            >
+              {formatCurrency(value || 0, isPrivacyMode, 0)} €
+            </span>
+          </>
+        )}
+      </button>
+    );
+  };
+
+  return (
+    <aside
+      className={`fixed md:relative inset-y-0 left-0 w-[85%] md:w-[320px] lg:w-[400px] h-screen bg-card border-r border-border flex flex-col z-50 shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-transform duration-300 ${
+        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+      }`}
+    >
+      <div className="hidden md:flex p-8 items-center justify-between border-b border-border">
+        <div className="flex items-center gap-3">
+          <div className="w-3 h-3 bg-primary rounded-full"></div>
+          <span className="font-bold tracking-widest text-sm uppercase text-foreground">Freenary</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <PrivacyToggle />
+          <ThemeToggle />
+          <button
+            onClick={onLogout}
+            className="text-muted-foreground hover:text-destructive bg-muted p-2 rounded-lg transition-colors"
+            title="Se déconnecter"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="px-8 pt-8 pb-4 flex flex-col justify-center">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2">Capital Net</p>
+        <h1 className="text-5xl lg:text-6xl font-bold tracking-tight leading-none mb-2 text-foreground">
+          {formatCurrency(globalData.totalWealth, isPrivacyMode, 0)}{" "}
+          <span className="text-2xl text-muted-foreground font-medium ml-1">€</span>
+        </h1>
+        <p
+          className={`text-sm font-semibold ${globalData.ytdPerformance >= 0 ? "text-success" : "text-destructive"}`}
+        >
+          {globalData.ytdPerformance >= 0 ? "+" : ""} {formatCurrency(globalData.ytdPerformance, isPrivacyMode, 0)} €{" "}
+          <span className="text-muted-foreground font-medium ml-1">YTD</span>
+        </p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 lg:p-6 pb-20 md:pb-6">
+        <div className="mb-6">
+          {renderNavItem("Vue Globale", null, currentCategory === "global", true, "global")}
+        </div>
+
+        <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-4 px-4">
+            Portefeuilles
+          </p>
+          <div className="space-y-1">
+            {globalData.distribution?.map((cat) => (
+              <div key={cat.name}>
+                {renderNavItem(
+                  cat.name,
+                  cat.value,
+                  currentCategory === (categorySlugs[cat.name] || cat.name.toLowerCase()),
+                  false,
+                  categorySlugs[cat.name] || cat.name.toLowerCase()
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+</file>
+
+<file path="front/components/privacy-toggle.tsx">
+"use client";
+
+import { Eye, EyeOff } from "lucide-react";
+import { usePrivacy } from "@/app/provider";
+import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useState } from "react";
+
+export default function PrivacyToggle() {
+  const { isPrivacyMode, togglePrivacyMode } = usePrivacy();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return <div className="w-9 h-9" />;
+  }
+
+  return (
+    <button
+      onClick={togglePrivacyMode}
+      className="relative p-2 rounded-xl bg-muted border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card hover:shadow-sm transition-all duration-300 overflow-hidden group"
+      title={isPrivacyMode ? "Afficher les montants" : "Masquer les montants"}
+      aria-label="Mode discret"
+    >
+      <div className="relative z-10 w-5 h-5 flex items-center justify-center">
+        <AnimatePresence mode="wait" initial={false}>
+          {isPrivacyMode ? (
+            <motion.div
+              key="eye-off"
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              transition={{ duration: 0.15 }}
+            >
+              <EyeOff className="w-5 h-5" />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="eye"
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              transition={{ duration: 0.15 }}
+            >
+              <Eye className="w-5 h-5" />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </button>
+  );
+}
+</file>
+
+<file path="front/components/theme-toggle.tsx">
+"use client";
+
+import { Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+
+export default function ThemeToggle() {
+  const [mounted, setMounted] = useState(false);
+  const { theme, setTheme } = useTheme();
+
+  // Évite l'hydratation mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    // Bouton fantôme pour garder la disposition
+    return <div className="w-9 h-9" />;
+  }
+
+  const isDark = theme === "dark";
+
+  return (
+    <button
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className="relative p-2 rounded-xl bg-muted border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card hover:shadow-sm transition-all duration-300 overflow-hidden group"
+      aria-label="Basculer le thème"
+    >
+      <div className="relative z-10 w-5 h-5 flex items-center justify-center">
+        <AnimatePresence mode="wait" initial={false}>
+          {isDark ? (
+            <motion.div
+              key="sun"
+              initial={{ y: -20, opacity: 0, rotate: -90 }}
+              animate={{ y: 0, opacity: 1, rotate: 0 }}
+              exit={{ y: 20, opacity: 0, rotate: 90 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Sun className="w-5 h-5" />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="moon"
+              initial={{ y: -20, opacity: 0, rotate: 90 }}
+              animate={{ y: 0, opacity: 1, rotate: 0 }}
+              exit={{ y: 20, opacity: 0, rotate: -90 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Moon className="w-5 h-5" />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </button>
+  );
+}
+</file>
+
+<file path="front/types/index.ts">
+export interface HistoricalDataPoint {
+  date: string;
+  value: number;
+}
+
+export interface Asset {
+  id: string;
+  name: string;
+  category: string;
+  quantity: number;
+  totalValue: number;
+  gainLoss: number;
+  gainLossPercent: number;
+  // Computed fields from the backend
+  currentPrice?: number;
+  currentValue?: number;
+  pru?: number;
+}
+
+export interface Transaction {
+  id: string;
+  date: string;
+  category: string;
+  type: "BUY" | "SELL" | "DEPOSIT" | "WITHDRAWAL";
+  amount: number;
+  quantity: number;
+  price: number;
+  label: string | null;
+  assetId: string;
+  asset?: Asset;
+}
+
+export interface CategoryData {
+  name: string;
+  value: number;
+  percent: number;
+}
+
+export interface GlobalData {
+  totalWealth: number;
+  ytdPerformance: number;
+  distribution: CategoryData[];
+  historicalData: HistoricalDataPoint[];
+  assets: Asset[];
+}
+
+export interface CategoryDetailsData {
+  totalWealth: number;
+  historicalData: HistoricalDataPoint[];
+  assets: Asset[];
+}
+</file>
+
+<file path="exempleDA.html">
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Freenary - Dashboard Clean</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        background: '#f8fafc',
+                        foreground: '#0f172a',
+                        card: '#ffffff',
+                        muted: '#f1f5f9',
+                        'muted-foreground': '#64748b',
+                        border: '#e2e8f0',
+                        brand: '#4f46e5',
+                        success: '#059669',
+                        danger: '#e11d48',
+                        donut: {
+                            pink: '#ec4899',
+                            purple: '#8b5cf6',
+                            blue: '#3b82f6',
+                            orange: '#f59e0b',
+                            green: '#10b981'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #f8fafc;
+            color: #0f172a;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        * {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .dotted-leader {
+            flex-grow: 1;
+            border-bottom: 2px dotted #cbd5e1;
+            margin: 0 12px;
+            position: relative;
+            top: -6px;
+        }
+
+        .category-btn {
+            border-left: 3px solid transparent;
+        }
+
+        .category-btn.active {
+            border-left-color: #4f46e5;
+            background-color: #f1f5f9;
+        }
+
+        .category-btn.active .category-text,
+        .category-btn.active .category-value {
+            color: #4f46e5;
+        }
+
+        .category-btn.active .dotted-leader {
+            border-bottom-color: rgba(79, 70, 229, 0.3);
+        }
+
+        .donut-segment {
+            transition: stroke-dashoffset 1s ease-out, stroke-width 0.2s;
+        }
+
+        .donut-segment:hover {
+            stroke-width: 5;
+            cursor: pointer;
+        }
+
+        .view-hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen overflow-hidden">
+
+    <div id="loginScreen" class="min-h-screen flex flex-col items-center justify-center p-4 bg-background fade-in">
+        <div
+            class="bg-card w-full max-w-md p-8 md:p-10 rounded-[2rem] shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] border border-border">
+
+            <div class="flex justify-center mb-8">
+                <div class="w-14 h-14 bg-brand/10 text-brand rounded-2xl flex items-center justify-center">
+                    <div class="w-4 h-4 bg-brand rounded-full"></div>
+                </div>
+            </div>
+
+            <div class="text-center mb-8">
+                <h1 class="text-3xl text-foreground font-bold tracking-tight mb-2">Master your <span
+                        class="text-brand">Wealth.</span></h1>
+                <p class="text-sm text-muted-foreground font-medium">Connectez-vous pour accéder à votre patrimoine.</p>
+            </div>
+
+            <form onsubmit="handleLogin(event)" class="space-y-5">
+                <div>
+                    <label
+                        class="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2 block ml-2">Adresse
+                        Email</label>
+                    <div class="relative">
+                        <i data-lucide="mail"
+                            class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"></i>
+                        <input type="email" value="hugo@freenary.com"
+                            class="w-full h-12 pl-11 pr-4 bg-muted/50 border border-border rounded-xl text-sm font-medium outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all"
+                            required>
+                    </div>
+                </div>
+
+                <div>
+                    <label
+                        class="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2 block ml-2">Mot
+                        de passe</label>
+                    <div class="relative">
+                        <i data-lucide="lock"
+                            class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"></i>
+                        <input type="password" value="password"
+                            class="w-full h-12 pl-11 pr-4 bg-muted/50 border border-border rounded-xl text-sm font-medium outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all"
+                            required>
+                    </div>
+                </div>
+
+                <button type="submit"
+                    class="w-full h-12 mt-4 bg-foreground text-card rounded-xl font-medium text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg shadow-slate-900/10 flex items-center justify-center gap-2">
+                    Se connecter <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+            </form>
+
+            <p class="text-center text-xs text-muted-foreground mt-8">
+                Pas encore de compte ? <a href="#" class="text-foreground font-medium hover:underline">S'inscrire</a>
+            </p>
+        </div>
+    </div>
+
+
+    <div id="appScreen" class="view-hidden flex flex-col md:flex-row min-h-screen w-full">
+
+        <header
+            class="md:hidden bg-card border-b border-border flex items-center justify-between p-4 z-40 relative shrink-0">
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-brand rounded-full"></div>
+                <span class="font-bold tracking-widest text-sm uppercase">Freenary</span>
+            </div>
+            <button onclick="toggleMobileMenu()" class="p-2 text-muted-foreground bg-muted rounded-lg">
+                <i data-lucide="menu" class="w-5 h-5"></i>
+            </button>
+        </header>
+
+        <div id="mobileOverlay" onclick="toggleMobileMenu()"
+            class="fixed inset-0 bg-slate-900/40 z-40 hidden md:hidden backdrop-blur-sm opacity-0 transition-opacity">
+        </div>
+
+        <aside id="sidebar"
+            class="fixed md:relative inset-y-0 left-0 w-[85%] md:w-[320px] lg:w-[400px] h-screen bg-card border-r border-border flex flex-col z-50 shadow-[4px_0_24px_rgba(0,0,0,0.02)] transform -translate-x-full md:translate-x-0 transition-transform duration-300">
+
+            <div class="hidden md:flex p-8 items-center justify-between border-b border-border">
+                <div class="flex items-center gap-3">
+                    <div class="w-3 h-3 bg-brand rounded-full"></div>
+                    <span class="font-bold tracking-widest text-sm uppercase text-foreground">Freenary</span>
+                </div>
+                <button onclick="handleLogout()"
+                    class="text-muted-foreground hover:text-danger bg-muted p-2 rounded-lg transition-colors"
+                    title="Se déconnecter">
+                    <i data-lucide="log-out" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="px-8 pt-8 pb-4 flex flex-col justify-center">
+                <p class="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2">Capital Net</p>
+                <h1 class="text-5xl lg:text-6xl font-bold tracking-tight leading-none mb-2 text-foreground">
+                    68 450 <span class="text-2xl text-muted-foreground font-medium ml-1">€</span>
+                </h1>
+                <p class="text-sm font-semibold text-success">+ 4 695 € <span
+                        class="text-muted-foreground font-medium ml-1">YTD</span></p>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4 lg:p-6 pb-20 md:pb-6">
+                <button onclick="selectCategory('global', 'Vue Globale')" id="nav-global"
+                    class="category-btn active w-full flex items-center gap-3 group cursor-pointer text-left py-3 px-4 rounded-xl mb-6">
+                    <i data-lucide="pie-chart"
+                        class="w-4 h-4 text-muted-foreground group-hover:text-brand category-text"></i>
+                    <span class="text-sm font-bold text-muted-foreground group-hover:text-foreground category-text">Vue
+                        Globale</span>
+                </button>
+
+                <p class="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-4 px-4">Catégories
+                </p>
+
+                <div class="space-y-1">
+                    <button onclick="selectCategory('epargne-salariale', 'Épargne Salariale')"
+                        id="nav-epargne-salariale"
+                        class="category-btn w-full flex items-center group cursor-pointer text-left py-3 px-4 rounded-r-xl">
+                        <span
+                            class="text-sm font-semibold text-muted-foreground group-hover:text-foreground category-text flex items-center gap-2"><span
+                                class="w-2 h-2 rounded-full bg-donut-pink"></span> Ép. Salariale</span>
+                        <div class="dotted-leader group-hover:border-slate-400"></div>
+                        <span
+                            class="text-sm font-bold tracking-tight text-muted-foreground group-hover:text-foreground category-value">39
+                            700 €</span>
+                    </button>
+                    <button onclick="selectCategory('epargne', 'Épargne')" id="nav-epargne"
+                        class="category-btn w-full flex items-center group cursor-pointer text-left py-3 px-4 rounded-r-xl">
+                        <span
+                            class="text-sm font-semibold text-muted-foreground group-hover:text-foreground category-text flex items-center gap-2"><span
+                                class="w-2 h-2 rounded-full bg-donut-purple"></span> Épargne</span>
+                        <div class="dotted-leader group-hover:border-slate-400"></div>
+                        <span
+                            class="text-sm font-bold tracking-tight text-muted-foreground group-hover:text-foreground category-value">15
+                            000 €</span>
+                    </button>
+                    <button onclick="selectCategory('crypto', 'Crypto')" id="nav-crypto"
+                        class="category-btn w-full flex items-center group cursor-pointer text-left py-3 px-4 rounded-r-xl">
+                        <span
+                            class="text-sm font-semibold text-muted-foreground group-hover:text-foreground category-text flex items-center gap-2"><span
+                                class="w-2 h-2 rounded-full bg-donut-orange"></span> Crypto</span>
+                        <div class="dotted-leader group-hover:border-slate-400"></div>
+                        <span
+                            class="text-sm font-bold tracking-tight text-muted-foreground group-hover:text-foreground category-value">8
+                            900 €</span>
+                    </button>
+                    <button onclick="selectCategory('pea', 'PEA')" id="nav-pea"
+                        class="category-btn w-full flex items-center group cursor-pointer text-left py-3 px-4 rounded-r-xl">
+                        <span
+                            class="text-sm font-semibold text-muted-foreground group-hover:text-foreground category-text flex items-center gap-2"><span
+                                class="w-2 h-2 rounded-full bg-donut-blue"></span> PEA</span>
+                        <div class="dotted-leader group-hover:border-slate-400"></div>
+                        <span
+                            class="text-sm font-bold tracking-tight text-muted-foreground group-hover:text-foreground category-value">2
+                            750 €</span>
+                    </button>
+                    <button onclick="selectCategory('compte-courant', 'Compte Courant')" id="nav-compte-courant"
+                        class="category-btn w-full flex items-center group cursor-pointer text-left py-3 px-4 rounded-r-xl">
+                        <span
+                            class="text-sm font-semibold text-muted-foreground group-hover:text-foreground category-text flex items-center gap-2"><span
+                                class="w-2 h-2 rounded-full bg-donut-green"></span> C. Courant</span>
+                        <div class="dotted-leader group-hover:border-slate-400"></div>
+                        <span
+                            class="text-sm font-bold tracking-tight text-muted-foreground group-hover:text-foreground category-value">2
+                            100 €</span>
+                    </button>
+                </div>
+
+                <div class="mt-8 px-4">
+                    <button onclick="openModal()"
+                        class="w-full py-3 rounded-xl text-xs uppercase tracking-widest font-bold bg-foreground text-card hover:scale-[1.02] active:scale-[0.98] transition-transform flex items-center justify-center gap-2 shadow-lg shadow-slate-900/10">
+                        <i data-lucide="plus" class="w-3 h-3"></i> Nouvelle Opération
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 h-[calc(100vh-64px)] md:h-screen overflow-y-auto bg-background relative w-full">
+
+            <section
+                class="h-[35vh] lg:h-[40vh] border-b border-border bg-card relative flex items-end p-6 lg:p-8 overflow-hidden">
+                <div
+                    class="absolute top-6 left-6 lg:top-8 lg:left-8 z-10 bg-white/80 backdrop-blur px-4 py-2 rounded-xl shadow-sm border border-border">
+                    <p class="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-1">Performance
+                    </p>
+                    <p id="chart-title" class="font-bold tracking-tight text-2xl lg:text-3xl text-foreground">Vue
+                        Globale</p>
+                </div>
+                <svg class="absolute inset-0 w-full h-full pointer-events-none">
+                    <line x1="0" y1="25%" x2="100%" y2="25%" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="4 4" />
+                    <line x1="0" y1="50%" x2="100%" y2="50%" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4 4" />
+                    <line x1="0" y1="75%" x2="100%" y2="75%" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="4 4" />
+                    <text x="10" y="24%" fill="#94a3b8" font-size="10" font-family="sans-serif">+15%</text>
+                    <text x="10" y="49%" fill="#94a3b8" font-size="10" font-family="sans-serif">+10%</text>
+                    <text x="10" y="74%" fill="#94a3b8" font-size="10" font-family="sans-serif">+5%</text>
+                </svg>
+                <svg class="absolute bottom-0 left-0 w-full h-[75%]" preserveAspectRatio="none" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#4f46e5" stop-opacity="0.15" />
+                            <stop offset="100%" stop-color="#4f46e5" stop-opacity="0" />
+                        </linearGradient>
+                    </defs>
+                    <path d="M0,90 Q15,85 25,85 T50,60 T75,40 T100,20 L100,100 L0,100 Z" fill="url(#chartGradient)" />
+                    <path d="M0,90 Q15,85 25,85 T50,60 T75,40 T100,20" fill="none" stroke="#4f46e5" stroke-width="2.5"
+                        stroke-linecap="round" />
+                    <circle cx="100" cy="20" r="1.5" fill="#ffffff" stroke="#4f46e5" stroke-width="1" />
+                </svg>
+            </section>
+
+            <div class="p-4 md:p-8 lg:p-12 space-y-8 lg:space-y-12 max-w-5xl mx-auto pb-24 md:pb-12">
+
+                <section id="section-repartition"
+                    class="fade-in bg-card border border-border rounded-[2rem] p-6 lg:p-8 shadow-sm">
+                    <h2 class="text-sm font-bold text-muted-foreground mb-8 uppercase tracking-wide">Répartition réelle
+                    </h2>
+                    <div class="flex flex-col md:flex-row items-center justify-center md:justify-start gap-8 lg:gap-16">
+                        <div class="relative w-48 h-48 shrink-0">
+                            <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90 drop-shadow-sm">
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#f1f5f9" stroke-width="4">
+                                </circle>
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#ec4899" stroke-width="4"
+                                    stroke-dasharray="57 43" stroke-dashoffset="0" class="donut-segment"></circle>
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#8b5cf6" stroke-width="4"
+                                    stroke-dasharray="21 79" stroke-dashoffset="-58" class="donut-segment"></circle>
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#f59e0b" stroke-width="4"
+                                    stroke-dasharray="12 88" stroke-dashoffset="-80" class="donut-segment"></circle>
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#3b82f6" stroke-width="4"
+                                    stroke-dasharray="3 97" stroke-dashoffset="-93" class="donut-segment"></circle>
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#10b981" stroke-width="4"
+                                    stroke-dasharray="2 98" stroke-dashoffset="-97" class="donut-segment"></circle>
+                            </svg>
+                        </div>
+                        <div class="w-full max-w-sm space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-donut-green"></div><span
+                                        class="text-sm font-semibold text-muted-foreground">COMPTE COURANT</span>
+                                </div><span class="text-sm font-bold text-foreground">2%</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-donut-orange"></div><span
+                                        class="text-sm font-semibold text-muted-foreground">CRYPTO</span>
+                                </div><span class="text-sm font-bold text-foreground">13%</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-donut-blue"></div><span
+                                        class="text-sm font-semibold text-muted-foreground">PEA</span>
+                                </div><span class="text-sm font-bold text-foreground">4%</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-donut-purple"></div><span
+                                        class="text-sm font-semibold text-muted-foreground">EPARGNE</span>
+                                </div><span class="text-sm font-bold text-foreground">22%</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-3 h-3 rounded-full bg-donut-pink"></div><span
+                                        class="text-sm font-semibold text-muted-foreground">EPARGNE-SALARIALE</span>
+                                </div><span class="text-sm font-bold text-foreground">58%</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="section-assets" class="hidden fade-in space-y-4">
+                    <div class="flex justify-between items-center mb-4 px-1">
+                        <h2 class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Positions
+                            Actives</h2>
+                        <button onclick="openModal()"
+                            class="text-[10px] font-bold text-brand hover:text-brand/80 transition-colors uppercase tracking-[0.1em] flex items-center gap-1">
+                            <i data-lucide="plus" class="w-3 h-3"></i> Ajouter
+                        </button>
+                    </div>
+
+                    <div class="bg-card border border-border rounded-2xl shadow-sm overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[500px]">
+                            <thead>
+                                <tr
+                                    class="border-b border-border bg-muted/30 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                                    <th class="py-3 px-4 font-bold">Actif</th>
+                                    <th class="py-3 px-4 font-bold text-right hidden sm:table-cell">Quantité</th>
+                                    <th class="py-3 px-4 font-bold text-right">PRU</th>
+                                    <th class="py-3 px-4 font-bold text-right">Valeur</th>
+                                </tr>
+                            </thead>
+
+                            <tbody id="assets-pea" class="asset-tbody hidden text-sm">
+                                <tr class="border-b border-border hover:bg-muted/30 transition-colors">
+                                    <td class="py-4 px-4 font-semibold">MSCI World <span
+                                            class="text-muted-foreground ml-2 text-[10px] font-bold bg-muted px-2 py-0.5 rounded">CW8.PA</span>
+                                    </td>
+                                    <td
+                                        class="py-4 px-4 text-right font-medium text-muted-foreground hidden sm:table-cell">
+                                        34.06</td>
+                                    <td class="py-4 px-4 text-right font-medium text-muted-foreground">328.00 €</td>
+                                    <td class="py-4 px-4 text-right font-bold text-base text-foreground tracking-tight">
+                                        12 400 €</td>
+                                </tr>
+                            </tbody>
+
+                            <tbody id="assets-crypto" class="asset-tbody hidden text-sm">
+                                <tr class="border-b border-border hover:bg-muted/30 transition-colors">
+                                    <td class="py-4 px-4 font-semibold">Bitcoin <span
+                                            class="text-muted-foreground ml-2 text-[10px] font-bold bg-muted px-2 py-0.5 rounded">BTC</span>
+                                    </td>
+                                    <td
+                                        class="py-4 px-4 text-right font-medium text-muted-foreground hidden sm:table-cell">
+                                        0.145</td>
+                                    <td class="py-4 px-4 text-right font-medium text-muted-foreground">42 100 €</td>
+                                    <td class="py-4 px-4 text-right font-bold text-base text-foreground tracking-tight">
+                                        6 104 €</td>
+                                </tr>
+                            </tbody>
+
+                            <tbody id="assets-epargne" class="asset-tbody hidden text-sm">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Sélectionnez un
+                                        livret</td>
+                                </tr>
+                            </tbody>
+                            <tbody id="assets-epargne-salariale" class="asset-tbody hidden text-sm">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Synchronisation en
+                                        cours...</td>
+                                </tr>
+                            </tbody>
+                            <tbody id="assets-compte-courant" class="asset-tbody hidden text-sm">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Aucun actif</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="section-history" class="hidden fade-in space-y-4">
+                    <h2 class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-1">Historique
+                        des transactions</h2>
+
+                    <div class="bg-card border border-border rounded-2xl shadow-sm overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[500px]">
+                            <thead>
+                                <tr
+                                    class="border-b border-border bg-muted/30 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                                    <th class="py-3 px-4 font-bold">Date</th>
+                                    <th class="py-3 px-4 font-bold">Type</th>
+                                    <th class="py-3 px-4 font-bold">Actif</th>
+                                    <th class="py-3 px-4 font-bold text-right">Montant</th>
+                                </tr>
+                            </thead>
+
+                            <tbody id="history-pea" class="history-tbody hidden text-sm">
+                                <tr class="border-b border-border hover:bg-muted/30 transition-colors">
+                                    <td class="py-4 px-4 font-medium text-muted-foreground text-xs">10 Juin 2026</td>
+                                    <td class="py-4 px-4"><span
+                                            class="bg-success/10 text-success px-2 py-1 rounded font-bold text-[10px] uppercase tracking-wider">Achat</span>
+                                    </td>
+                                    <td class="py-4 px-4 font-semibold text-foreground">MSCI World</td>
+                                    <td class="py-4 px-4 text-right font-bold text-base text-success tracking-tight">+
+                                        500 €</td>
+                                </tr>
+                                <tr class="hover:bg-muted/30 transition-colors">
+                                    <td class="py-4 px-4 font-medium text-muted-foreground text-xs">02 Juin 2026</td>
+                                    <td class="py-4 px-4"><span
+                                            class="bg-danger/10 text-danger px-2 py-1 rounded font-bold text-[10px] uppercase tracking-wider">Vente</span>
+                                    </td>
+                                    <td class="py-4 px-4 font-semibold text-foreground">LVMH</td>
+                                    <td class="py-4 px-4 text-right font-bold text-base text-danger tracking-tight">-
+                                        850 €</td>
+                                </tr>
+                            </tbody>
+
+                            <tbody id="history-crypto" class="history-tbody hidden text-sm">
+                                <tr class="hover:bg-muted/30 transition-colors">
+                                    <td class="py-4 px-4 font-medium text-muted-foreground text-xs">15 Fév 2026</td>
+                                    <td class="py-4 px-4"><span
+                                            class="bg-success/10 text-success px-2 py-1 rounded font-bold text-[10px] uppercase tracking-wider">Dépôt</span>
+                                    </td>
+                                    <td class="py-4 px-4 font-semibold text-foreground">Bitcoin</td>
+                                    <td class="py-4 px-4 text-right font-bold text-base text-success tracking-tight">+
+                                        200 €</td>
+                                </tr>
+                            </tbody>
+
+                            <tbody id="history-epargne" class="history-tbody hidden">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Aucun mouvement</td>
+                                </tr>
+                            </tbody>
+                            <tbody id="history-epargne-salariale" class="history-tbody hidden">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Aucun mouvement</td>
+                                </tr>
+                            </tbody>
+                            <tbody id="history-compte-courant" class="history-tbody hidden">
+                                <tr class="text-center">
+                                    <td colspan="4" class="py-8 font-medium text-muted-foreground">Aucun mouvement</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <div id="addModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-300">
+        <div onclick="closeModal()" class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"></div>
+
+        <div class="bg-card w-full max-w-md rounded-[2rem] shadow-2xl relative z-10 transform scale-95 transition-transform duration-300 border border-border"
+            id="modalContent">
+
+            <div class="px-8 pt-8 pb-4 flex justify-between items-start">
+                <div>
+                    <h2 class="text-2xl font-bold text-foreground mb-1 tracking-tight">Nouvelle opération</h2>
+                    <p class="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Saisie Manuelle</p>
+                </div>
+                <button onclick="closeModal()"
+                    class="w-8 h-8 bg-muted rounded-full flex items-center justify-center text-muted-foreground hover:bg-slate-200 transition-colors">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="p-8 space-y-6">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label
+                            class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">Poche</label>
+                        <select id="modalCategory"
+                            class="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-brand focus:ring-1 focus:ring-brand appearance-none cursor-pointer">
+                            <option value="pea">PEA</option>
+                            <option value="crypto">Crypto</option>
+                            <option value="epargne">Épargne</option>
+                            <option value="epargne-salariale">Ép. Salariale</option>
+                            <option value="compte-courant">C. Courant</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label
+                            class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">Direction</label>
+                        <select
+                            class="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-brand focus:ring-1 focus:ring-brand appearance-none cursor-pointer">
+                            <option>Achat / Dépôt</option>
+                            <option>Vente / Retrait</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label
+                        class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">Actif
+                        concerné</label>
+                    <input type="text" placeholder="Ex: Bitcoin, CW8..."
+                        class="w-full h-12 px-4 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-brand transition-colors placeholder:text-muted-foreground/50">
+                </div>
+
+                <div>
+                    <label
+                        class="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">Montant
+                        (€)</label>
+                    <input type="text" placeholder="0.00"
+                        class="w-full bg-transparent border-b-2 border-border py-2 text-foreground font-bold tracking-tight text-4xl outline-none focus:border-brand transition-colors placeholder:text-muted-foreground/30">
+                </div>
+
+                <div class="pt-4">
+                    <button onclick="closeModal()"
+                        class="w-full h-14 bg-foreground text-card rounded-xl font-bold text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg shadow-slate-900/10 tracking-wide">
+                        Valider l'opération
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        // LOGIQUE D'AUTHENTIFICATION (Simulation)
+        function handleLogin(e) {
+            e.preventDefault();
+            const loginScreen = document.getElementById('loginScreen');
+            const appScreen = document.getElementById('appScreen');
+
+            loginScreen.style.opacity = '0';
+            setTimeout(() => {
+                loginScreen.classList.add('view-hidden');
+                appScreen.classList.remove('view-hidden');
+                appScreen.classList.add('fade-in');
+            }, 300);
+        }
+
+        function handleLogout() {
+            const loginScreen = document.getElementById('loginScreen');
+            const appScreen = document.getElementById('appScreen');
+
+            appScreen.style.opacity = '0';
+            setTimeout(() => {
+                appScreen.classList.add('view-hidden');
+                appScreen.style.opacity = '1';
+                loginScreen.classList.remove('view-hidden');
+                loginScreen.style.opacity = '1';
+            }, 300);
+        }
+
+        // MENU MOBILE
+        function toggleMobileMenu() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('mobileOverlay');
+
+            if (sidebar.classList.contains('-translate-x-full')) {
+                sidebar.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+                setTimeout(() => overlay.classList.remove('opacity-0'), 10);
+            } else {
+                sidebar.classList.add('-translate-x-full');
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            }
+        }
+
+        // NAVIGATION ENTRE CATÉGORIES
+        let currentActiveCategory = 'global';
+
+        function selectCategory(categoryId, categoryName) {
+            currentActiveCategory = categoryId;
+
+            // 1. Bouton actif dans la sidebar
+            document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('nav-' + categoryId).classList.add('active');
+
+            // 2. Changer le titre du graphique
+            document.getElementById('chart-title').innerText = categoryName;
+
+            // 3. Sections
+            const sectionRepartition = document.getElementById('section-repartition');
+            const sectionAssets = document.getElementById('section-assets');
+            const sectionHistory = document.getElementById('section-history');
+
+            if (categoryId === 'global') {
+                sectionRepartition.classList.remove('hidden');
+                sectionAssets.classList.add('hidden');
+                sectionHistory.classList.add('hidden');
+            } else {
+                sectionRepartition.classList.add('hidden');
+                sectionAssets.classList.remove('hidden');
+                sectionHistory.classList.remove('hidden');
+
+                // Tbody Actifs
+                document.querySelectorAll('.asset-tbody').forEach(tbody => tbody.classList.add('hidden'));
+                document.getElementById('assets-' + categoryId).classList.remove('hidden');
+
+                // Tbody Historique
+                document.querySelectorAll('.history-tbody').forEach(tbody => tbody.classList.add('hidden'));
+                document.getElementById('history-' + categoryId).classList.remove('hidden');
+            }
+
+            // Fermer mobile menu
+            if (window.innerWidth < 768) {
+                toggleMobileMenu();
+            }
+        }
+
+        // GESTION DE LA MODALE
+        const modal = document.getElementById('addModal');
+        const modalContent = document.getElementById('modalContent');
+        const modalCategorySelect = document.getElementById('modalCategory');
+
+        function openModal() {
+            if (currentActiveCategory !== 'global') {
+                modalCategorySelect.value = currentActiveCategory;
+            }
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modalContent.classList.remove('scale-95');
+            modalContent.classList.add('scale-100');
+        }
+
+        function closeModal() {
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            modalContent.classList.remove('scale-100');
+            modalContent.classList.add('scale-95');
+        }
+    </script>
+</body>
+
+</html>
+</file>
+
+<file path="trade_republic_transactions.csv">
+timestamp;title;subtitle;amount.value;amount.fractionDigits;subAmount.value;subAmount.fractionDigits
+09/06/2026;Api Restauration;;-9,69;2;;
+09/06/2026;STMicroelectronics;Round up;-1,8;2;;
+08/06/2026;Api Restauration;;-7,43;2;;
+07/06/2026;HUGO DECHAUX;Envoyé;-10,0;2;;
+06/06/2026;KFC;;-16,4;2;;
+05/06/2026;Boulangerie Ange;;-10,5;2;;
+03/06/2026;StackSocial;;-165,3;2;-191,96;2,0
+03/06/2026;StackCommerce;Vérification de la carte;0,0;2;;
+03/06/2026;M. HUGO DECHAUX;Terminé;200,0;2;;
+03/06/2026;Boulangerie Ange;;-12,4;2;;
+02/06/2026;Stoxx Europe 600 EUR (acc);PEA;-41,04;2;;
+02/06/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-41,04;2;;
+02/06/2026;MSCI World Swap PEA EUR (Acc);PEA;-74,81;2;;
+02/06/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-37,08;2;;
+02/06/2026;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-74,81;2;;
+02/06/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-37,08;2;;
+01/06/2026;Intérêts;;0,62;2;;
+28/05/2026;Carrefour;;-177,81;2;;
+25/05/2026;ALST*fitfashionlab;;-91,76;2;-106,32;2,0
+19/05/2026;ISMAEL LIDOT;Envoyé;-40,0;2;;
+19/05/2026;PAYPAL *ismael.lidot91;;-40,0;2;;
+04/05/2026;Stoxx Europe 600 EUR (acc);PEA;-39,72;2;;
+04/05/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-39,72;2;;
+04/05/2026;MSCI World Swap PEA EUR (Acc);PEA;-77,64;2;;
+04/05/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-67,21;2;;
+04/05/2026;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-77,64;2;;
+04/05/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-67,21;2;;
+01/05/2026;Intérêts;2 % p.a.;0,44;2;;
+22/04/2026;PayPal;Vérification de la carte;0,0;2;;
+21/04/2026;Banco Cetelem;Annulée;-474,75;2;;
+21/04/2026;Banco Cetelem;Vérification de la carte;0,0;2;;
+21/04/2026;Banco Cetelem;Annulée;-474,75;2;;
+21/04/2026;MR OU MME DECHAUX;Terminé;180,0;2;;
+21/04/2026;Banco Cetelem;Vérification de la carte;0,0;2;;
+21/04/2026;M. HUGO DECHAUX;Terminé;250,0;2;;
+18/04/2026;Rakuten;;-0,9;2;;
+18/04/2026;VPG LIMONETIK;;250,0;2;;
+06/04/2026;VPG LIMONETIK;;-250,0;2;;
+06/04/2026;M. HUGO DECHAUX;Terminé;250,0;2;;
+02/04/2026;Stoxx Europe 600 EUR (acc);PEA;-38,27;2;;
+02/04/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-38,27;2;;
+02/04/2026;MSCI World Swap PEA EUR (Acc);PEA;-78,07;2;;
+02/04/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-59,31;2;;
+02/04/2026;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-78,07;2;;
+02/04/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-59,31;2;;
+01/04/2026;Intérêts;2 % p.a.;0,29;2;;
+30/03/2026;AXS;Vérification de la carte;0,0;2;;
+02/03/2026;Stoxx Europe 600 EUR (acc);PEA;-40,27;2;;
+02/03/2026;MSCI World Swap PEA EUR (Acc);PEA;-74,45;2;;
+02/03/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-40,27;2;;
+02/03/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-63,53;2;;
+02/03/2026;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-74,45;2;;
+02/03/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-63,53;2;;
+01/03/2026;M. HUGO DECHAUX;Terminé;300,0;2;;
+01/03/2026;Intérêts;2 % p.a.;0,15;2;;
+13/02/2026;Mol*MAXESPORT;;-23,85;2;;
+13/02/2026;Google;Annulée;-1,24;2;-2,0;2,0
+02/02/2026;Stoxx Europe 600 EUR (acc);PEA;-39,68;2;;
+02/02/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-39,68;2;;
+02/02/2026;MSCI World Swap PEA EUR (Acc);PEA;-79,87;2;;
+02/02/2026;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-79,87;2;;
+02/02/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-60,12;2;;
+02/02/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-60,12;2;;
+01/02/2026;M. HUGO DECHAUX;Terminé;300,0;2;;
+01/02/2026;Intérêts;2 % p.a.;0,08;2;;
+09/01/2026;Sushia;;-10,12;2;-17,57;2,0
+08/01/2026;Gifts At The QuayAUSTRALI;;-14,45;2;-24,99;2,0
+07/01/2026;MINGARA REC CLUB 1;Retrait;-37,8;2;;
+06/01/2026;MINGARA REC CLUB 1;Retrait;-37,73;2;;
+06/01/2026;The Entrance Hotel;;-14,81;2;-25,8;2,0
+05/01/2026;Port Stephens;;-3,39;2;-5,92;2,0
+03/01/2026;The Royal Hotel;;-62,79;2;-109,73;2,0
+02/01/2026;Stoxx Europe 600 EUR (acc);PEA;-19,24;2;;
+02/01/2026;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-19,24;2;;
+02/01/2026;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-29,26;2;;
+02/01/2026;MSCI World Swap PEA EUR (Acc);Échec du plan d'épargne;-40,0;2;;
+02/01/2026;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-29,26;2;;
+02/01/2026;Featherdale Wildlife Park;;-19,09;2;-33,47;2,0
+01/01/2026;Intérêts;2 % p.a.;0,06;2;;
+30/12/2025;Coco Nine Kingston;;-77,48;2;-135,5;2,0
+30/12/2025;AUSTRALIAN CHOICE PT;;-14,27;2;-24,95;2,0
+30/12/2025;M. HUGO DECHAUX;Terminé;300,0;2;;
+28/12/2025;Souvenir Plus;;-34,74;2;-60,75;2,0
+23/12/2025;SNCF;;-22,5;2;;
+22/12/2025;APRR | AREA France;;-22,9;2;;
+22/12/2025;M. HUGO DECHAUX;Terminé;150,0;2;;
+17/12/2025;Château de Saulon;;-116,0;2;;
+17/12/2025;M. HUGO DECHAUX;Terminé;100,0;2;;
+17/12/2025;Boulangerie Ange;;-9,9;2;;
+16/12/2025;American Dream;;-104,9;2;;
+16/12/2025;Lego;;-56,98;2;;
+16/12/2025;Darty;;-95,28;2;;
+16/12/2025;M. HUGO DECHAUX;Terminé;200,0;2;;
+15/12/2025;Boulangerie Ange;;-9,8;2;;
+13/12/2025;Ekin 21;;-13,5;2;;
+13/12/2025;M. HUGO DECHAUX;Terminé;100,0;2;;
+13/12/2025;GlobalE /Rare Beauty;;-66,0;2;;
+02/12/2025;Stoxx Europe 600 EUR (acc);PEA;-18,62;2;;
+02/12/2025;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-18,62;2;;
+02/12/2025;MSCI World Swap PEA EUR (Acc);PEA;-36,58;2;;
+02/12/2025;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-28,29;2;;
+02/12/2025;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-36,58;2;;
+02/12/2025;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-28,29;2;;
+03/11/2025;Stoxx Europe 600 EUR (acc);PEA;-18,49;2;;
+03/11/2025;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-18,49;2;;
+03/11/2025;MSCI World Swap PEA EUR (Acc);PEA;-37,01;2;;
+03/11/2025;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-29,26;2;;
+03/11/2025;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-37,01;2;;
+03/11/2025;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-29,26;2;;
+01/11/2025;M. HUGO DECHAUX;Terminé;200,0;2;;
+02/10/2025;Stoxx Europe 600 EUR (acc);PEA;-18,33;2;;
+02/10/2025;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-18,33;2;;
+02/10/2025;MSCI World Swap PEA EUR (Acc);PEA;-35,7;2;;
+02/10/2025;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-28,04;2;;
+02/10/2025;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-35,7;2;;
+02/10/2025;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-28,04;2;;
+01/10/2025;M. HUGO DECHAUX;Terminé;100,0;2;;
+02/09/2025;Stoxx Europe 600 EUR (acc);PEA;-17,55;2;;
+02/09/2025;Stoxx Europe 600 EUR (acc);Plan d'épargne exécuté;-17,55;2;;
+02/09/2025;MSCI World Swap PEA EUR (Acc);PEA;-34,46;2;;
+02/09/2025;PEA MSCI Emerging Markets ESG EUR (Acc);PEA;-24,92;2;;
+02/09/2025;MSCI World Swap PEA EUR (Acc);Plan d'épargne exécuté;-34,46;2;;
+02/09/2025;PEA MSCI Emerging Markets ESG EUR (Acc);Plan d'épargne exécuté;-25,92;2;;
+11/08/2025;Activation du PEA;;1,0;2;;
+08/08/2025;M. HUGO DECHAUX;Terminé;100,0;2;;
+</file>
 
 <file path="back/prisma/migrations/20260608205041_add_transaction_label/migration.sql">
 -- CreateTable
@@ -302,7 +2450,7 @@ export class AuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const token = this.extractTokenFromHeader(request);
+    const token = this.extractToken(request);
 
     if (!token) {
       throw new UnauthorizedException('Token manquant');
@@ -321,7 +2469,12 @@ export class AuthGuard implements CanActivate {
     return true;
   }
 
-  private extractTokenFromHeader(request: Request): string | undefined {
+  private extractToken(request: Request): string | undefined {
+    // 1. Cherche le token dans les cookies HttpOnly
+    if (request.cookies && request.cookies['wealth_token']) {
+      return request.cookies['wealth_token'];
+    }
+    // 2. Fallback optionnel (pour les tests API avec Postman par exemple)
     const [type, token] = request.headers.authorization?.split(' ') ?? [];
     return type === 'Bearer' ? token : undefined;
   }
@@ -856,7 +3009,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-export default function SettingsModal({ isOpen, onClose, onLogout }: any) {
+interface SettingsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onLogout: () => void;
+}
+
+export default function SettingsModal({ isOpen, onClose, onLogout }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState("account");
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -867,14 +3026,13 @@ export default function SettingsModal({ isOpen, onClose, onLogout }: any) {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/auth/update-password`,
         {
           method: "PUT",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ oldPassword, newPassword }),
         },
@@ -884,8 +3042,12 @@ export default function SettingsModal({ isOpen, onClose, onLogout }: any) {
       toast.success("Mot de passe mis à jour !");
       setOldPassword("");
       setNewPassword("");
-    } catch (err: any) {
-      toast.error(err.message || "Erreur de mise à jour");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        toast.error(err.message || "Erreur de mise à jour");
+      } else {
+        toast.error("Erreur de mise à jour");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -900,12 +3062,11 @@ export default function SettingsModal({ isOpen, onClose, onLogout }: any) {
       return;
     setIsDeleting(true);
     try {
-      const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/auth/delete-account`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         },
       );
       if (!res.ok) throw new Error("Erreur serveur");
@@ -1007,7 +3168,7 @@ export default function SettingsModal({ isOpen, onClose, onLogout }: any) {
                   <div className="bg-destructive/10 text-destructive p-4 rounded-xl flex gap-3">
                     <AlertTriangle className="w-5 h-5 shrink-0" />
                     <p className="text-sm font-light">
-                      T'es sur de vouloir supprimer le compte ?
+                      T&apos;es sur de vouloir supprimer le compte ?
                     </p>
                   </div>
                   <button
@@ -1261,24 +3422,52 @@ import {
   Body,
   UseGuards,
   Request,
+  Res,
   Put,
   Delete,
+  Get,
 } from '@nestjs/common';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
+import type { Response } from 'express';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  private setTokenCookie(res: Response, token: string) {
+    res.cookie('wealth_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax', // Permet l'envoi depuis le frontend Next.js en dev et prod
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 jours
+    });
+  }
+
   @Post('register')
-  async register(@Body() body: any) {
-    return this.authService.register(body.email, body.password, body.name);
+  async register(@Body() body: any, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.register(body.email, body.password, body.name);
+    this.setTokenCookie(res, result.access_token);
+    return { message: 'Inscription réussie', user: result.user };
   }
 
   @Post('login')
-  async login(@Body() body: any) {
-    return this.authService.login(body.email, body.password);
+  async login(@Body() body: any, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.login(body.email, body.password);
+    this.setTokenCookie(res, result.access_token);
+    return { message: 'Connexion réussie', user: result.user };
+  }
+
+  @Post('logout')
+  async logout(@Res({ passthrough: true }) res: Response) {
+    res.clearCookie('wealth_token');
+    return { message: 'Déconnexion réussie' };
+  }
+
+  @UseGuards(AuthGuard)
+  @Get('me')
+  async me(@Request() req: any) {
+    return { user: req.user };
   }
   @UseGuards(AuthGuard)
   @Put('update-password')
@@ -1292,8 +3481,10 @@ export class AuthController {
 
   @UseGuards(AuthGuard)
   @Delete('delete-account')
-  async deleteAccount(@Request() req: any) {
-    return this.authService.deleteUser(req.user.sub);
+  async deleteAccount(@Request() req: any, @Res({ passthrough: true }) res: Response) {
+    await this.authService.deleteUser(req.user.sub);
+    res.clearCookie('wealth_token');
+    return { message: 'Compte supprimé' };
   }
 }
 </file>
@@ -1453,7 +3644,7 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class CryptoService {
-  private cachedPrices: Record<string, any> = {};
+  private cachedPrices: Record<string, { eur?: number }> = {};
   private lastFetchTime: number = 0;
   private readonly CACHE_DURATION = 5 * 60 * 1000;
 
@@ -1465,7 +3656,7 @@ export class CryptoService {
     return n;
   }
 
-  async fetchPrices(names: string[]): Promise<Record<string, any>> {
+  async fetchPrices(names: string[]): Promise<Record<string, { eur?: number }>> {
     const now = Date.now();
     const ids = names.map((n) => this.getCoinGeckoId(n)).join(',');
 
@@ -1481,7 +3672,7 @@ export class CryptoService {
         `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=eur`,
       );
       if (res.ok) {
-        this.cachedPrices = await res.json();
+        this.cachedPrices = (await res.json()) as Record<string, { eur?: number }>;
         this.lastFetchTime = now;
       }
     } catch (e) {
@@ -1497,10 +3688,12 @@ export class CryptoService {
     try {
       const url = `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`;
       const response = await fetch(url);
-      const data = await response.json();
+      const data = (await response.json()) as {
+        coins: { id: string; symbol: string; name: string; thumb: string }[];
+      };
 
       // On récupère les 10 premiers résultats
-      return data.coins.slice(0, 10).map((coin: any) => ({
+      return data.coins.slice(0, 10).map((coin) => ({
         symbol: coin.id, // On utilise l'ID (ex: 'bitcoin') pour que CoinGecko retrouve le prix plus tard
         ticker: coin.symbol, // Le symbole court (ex: 'BTC')
         name: coin.name,
@@ -1692,71 +3885,101 @@ main().catch((e) => {
   --color-card-foreground: var(--card-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-brand: var(--primary);
+  /* Alias pour correspondre au HTML */
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --color-success: var(--success);
-  --color-destructive: var(--destructive);
+  --color-danger: var(--danger);
+  --color-destructive: var(--danger);
+  /* Pour la compatibilité avec tes anciens composants Shadcn */
 
-  /* 🌟 CORRECTION ICI : Ajout de la couleur "ring" pour les focus/contours */
   --color-ring: var(--ring);
+
+  /* Couleurs de ta DA pour le graphique Donut */
+  --color-donut-pink: #ec4899;
+  --color-donut-purple: #8b5cf6;
+  --color-donut-blue: #3b82f6;
+  --color-donut-orange: #f59e0b;
+  --color-donut-green: #10b981;
 
   /* Ombre premium dynamique */
   --shadow-premium: var(--shadow-premium-value);
 }
 
 :root {
-  --radius: 1.25rem;
+  --radius: 1.5rem;
+  /* Base un peu plus arrondie */
 
-  /* Mode Clair : "Warm Sand & Amber" */
-  --background: oklch(0.98 0.01 80);
-  --foreground: oklch(0.2 0.02 80);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.02 80);
-  --primary: oklch(0.65 0.18 85);
-  --primary-foreground: oklch(0.98 0.01 80);
-  --muted: oklch(0.94 0.02 80);
-  --muted-foreground: oklch(0.55 0.02 80);
-  --border: oklch(0.9 0.02 80);
+  /* Mode Clair : Clean, Slate & Indigo */
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --border: #e2e8f0;
 
-  --success: oklch(0.65 0.15 145);
-  --destructive: oklch(0.6 0.2 25);
+  --success: #059669;
+  --danger: #e11d48;
 
-  /* 🌟 CORRECTION ICI : Le ring prend la même couleur que le primary (Ambre) */
-  --ring: oklch(0.65 0.18 85);
+  --ring: #4f46e5;
 
-  --shadow-premium-value: 0 10px 40px -10px oklch(0.65 0.18 85 / 8%);
+  /* L'ombre ultra-douce de ton prototype */
+  --shadow-premium-value: 0 20px 40px -15px rgba(0, 0, 0, 0.05);
 }
 
 .dark {
-  /* Mode Sombre : "Deep Amber" */
-  --background: oklch(0.12 0.015 80);
-  --foreground: oklch(0.96 0.01 80);
-  --card: oklch(0.18 0.02 80);
-  --card-foreground: oklch(0.96 0.01 80);
-  --primary: oklch(0.7 0.18 85);
-  --primary-foreground: oklch(0.12 0.015 80);
-  --muted: oklch(0.22 0.02 80);
-  --muted-foreground: oklch(0.65 0.02 80);
-  --border: oklch(1 0 0 / 12%);
+  /* Mode Sombre : Deep Slate & Indigo */
+  --background: #020617;
+  /* slate-950 */
+  --foreground: #f8fafc;
+  /* slate-50 */
+  --card: #0f172a;
+  /* slate-900 */
+  --card-foreground: #f8fafc;
+  --primary: #6366f1;
+  /* indigo-500 (plus clair pour la lisibilité sur fond noir) */
+  --primary-foreground: #ffffff;
+  --muted: #1e293b;
+  /* slate-800 */
+  --muted-foreground: #94a3b8;
+  /* slate-400 */
+  --border: #1e293b;
+  /* slate-800 */
 
-  --success: oklch(0.75 0.16 145);
-  --destructive: oklch(0.6 0.2 25);
+  --success: #10b981;
+  --danger: #f43f5e;
 
-  --ring: oklch(0.7 0.18 85);
+  --ring: #6366f1;
 
-  /* 🌟 MODIFICATION ICI : 
-     On passe sur une ombre classique (noir), plus petite, et sans le côté "néon" */
-  --shadow-premium-value: 0 4px 20px -2px oklch(0 0 0 / 25%);
+  /* L'ombre ajustée pour le dark mode */
+  --shadow-premium-value: 0 20px 40px -15px rgba(0, 0, 0, 0.4);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
     overscroll-behavior-y: none;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Utilitaires spécifiques à ta nouvelle DA */
+@layer utilities {
+  .dotted-leader {
+    @apply grow border-b-2 border-dotted border-slate-300 mx-3 relative -top-1.5 transition-colors;
+  }
+
+  .dark .dotted-leader {
+    @apply border-slate-700;
   }
 }
 </file>
@@ -1799,18 +4022,10 @@ export function ThemeSwitcher() {
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Activity,
-  Mail,
-  Lock,
-  User,
-  AlertCircle,
-  ArrowRight,
-  Smile,
-} from "lucide-react";
+import { Mail, Lock, User, AlertCircle, ArrowRight } from "lucide-react";
 
 interface LoginScreenProps {
-  onLoginSuccess: (token: string, userId: string) => void;
+  onLoginSuccess: (userId: string) => void;
 }
 
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
@@ -1836,41 +4051,58 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          credentials: "include", // 🛡️ SÉCURITÉ : Envoie et reçoit les cookies HttpOnly
         },
       );
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Une erreur est survenue");
 
-      localStorage.setItem("wealth_token", data.access_token);
       localStorage.setItem("wealth_user_id", data.user.id);
-      onLoginSuccess(data.access_token, data.user.id);
-    } catch (err: any) {
-      setError(err.message);
+      onLoginSuccess(data.user.id);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || "Erreur de connexion");
+      } else {
+        setError("Erreur de connexion");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 transition-colors duration-300">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-background animate-in fade-in duration-700 relative overflow-hidden">
+      {/* 🌟 FOND : Grille subtile (Style Vercel/Stripe) + Lueur douce */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808015_1px,transparent_1px),linear-gradient(to_bottom,#80808015_1px,transparent_1px)] bg-[size:24px_24px]"></div>
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] opacity-40 pointer-events-none">
+        <div className="absolute inset-0 bg-primary/30 rounded-full blur-[100px] mix-blend-normal"></div>
+      </div>
+
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm bg-card p-8 rounded-[2rem] shadow-premium border border-border"
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="relative z-10 w-full max-w-md bg-card/80 backdrop-blur-2xl p-8 sm:p-10 rounded-[2.5rem] shadow-premium border border-border"
       >
-        <div className="w-16 h-16 bg-primary rounded-2xl mx-auto flex items-center justify-center text-primary-foreground mb-6 shadow-premium">
-          <Smile size={32} />
+        <div className="flex justify-center mb-8">
+          <img 
+            src="/icon.png" 
+            alt="Logo Freenary" 
+            className="w-16 h-16 rounded-2xl shadow-inner object-cover" 
+          />
         </div>
 
-        <h1 className="text-2xl text-foreground font-light text-center tracking-tight mb-2">
-          {isLogin ? "Bon retour" : "Créer un compte"}
-        </h1>
-        <p className="text-muted-foreground text-sm font-light text-center mb-8">
-          {isLogin
-            ? "Connectez-vous pour voir votre patrimoine."
-            : "Rejoignez-nous pour suivre vos actifs."}
-        </p>
+        <div className="text-center mb-8">
+          <h1 className="text-3xl text-foreground font-bold tracking-tight mb-2">
+            <span className="text-primary">Freenary</span>
+          </h1>
+          <p className="text-sm text-muted-foreground font-medium">
+            {isLogin
+              ? "Connecte toi"
+              : "Rejoint nous pour suivre tes actifs."}
+          </p>
+        </div>
 
         <AnimatePresence>
           {error && (
@@ -1878,7 +4110,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="mb-6 bg-destructive/10 text-destructive text-sm px-4 py-3 rounded-xl flex items-center gap-2"
+              className="mb-6 bg-destructive/10 text-destructive text-sm px-4 py-3 rounded-xl flex items-center gap-2 overflow-hidden border border-destructive/20"
             >
               <AlertCircle size={16} className="shrink-0" />
               <p>{error}</p>
@@ -1886,88 +4118,98 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           )}
         </AnimatePresence>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <AnimatePresence>
             {!isLogin && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="relative"
+                className="overflow-hidden"
               >
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <User size={18} className="text-muted-foreground" />
+                <div className="pb-2">
+                  <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2 block ml-2">
+                    Prénom
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      required={!isLogin}
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full h-12 pl-11 pr-4 bg-transparent border border-border rounded-xl text-sm font-medium outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                      placeholder="Huey"
+                    />
+                  </div>
                 </div>
-                <input
-                  type="text"
-                  required={!isLogin}
-                  placeholder="Votre prénom"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full h-12 pl-11 pr-4 rounded-xl bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-light transition-all"
-                />
               </motion.div>
             )}
           </AnimatePresence>
 
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Mail size={18} className="text-muted-foreground" />
+          <div>
+            <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2 block ml-2">
+              Adresse Email
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full h-12 pl-11 pr-4 bg-transparent border border-border rounded-xl text-sm font-medium outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                placeholder="Riley@freeman.com"
+              />
             </div>
-            <input
-              type="email"
-              required
-              placeholder="Adresse email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full h-12 pl-11 pr-4 rounded-xl bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-light transition-all"
-            />
           </div>
 
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Lock size={18} className="text-muted-foreground" />
+          <div>
+            <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mb-2 block ml-2">
+              Mot de passe
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full h-12 pl-11 pr-4 bg-transparent border border-border rounded-xl text-sm font-medium outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                placeholder="••••••••"
+              />
             </div>
-            <input
-              type="password"
-              required
-              placeholder="Mot de passe"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full h-12 pl-11 pr-4 rounded-xl bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-light transition-all"
-            />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full h-12 mt-2 bg-primary hover:opacity-90 text-primary-foreground rounded-xl font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            className="w-full h-12 mt-6 bg-primary text-white rounded-xl font-medium text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg shadow-primary/30 flex items-center justify-center gap-2 disabled:opacity-50 disabled:hover:scale-100"
           >
             {loading ? (
               <span className="animate-pulse">Chargement...</span>
             ) : (
               <>
                 {isLogin ? "Se connecter" : "Créer mon compte"}
-                <ArrowRight size={18} />
+                <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
         </form>
 
-        <div className="mt-6 text-center">
+        <p className="text-center text-xs text-muted-foreground mt-8">
+          {isLogin ? "Pas encore de compte ?" : "Déjà un compte ?"}
           <button
             type="button"
             onClick={() => {
               setIsLogin(!isLogin);
               setError("");
             }}
-            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+            className="text-primary font-bold hover:underline ml-1"
           >
-            {isLogin
-              ? "Pas encore de compte ? S'inscrire"
-              : "Déjà un compte ? Se connecter"}
+            {isLogin ? "S'inscrire" : "Se connecter"}
           </button>
-        </div>
+        </p>
       </motion.div>
     </div>
   );
@@ -2199,10 +4441,12 @@ export class AppModule {}
 <file path="back/src/main.ts">
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.use(cookieParser());
 
   // 🛡️ SÉCURITÉ CORS STRICTE
   const allowedOrigins = [
@@ -2254,7 +4498,7 @@ export class StockService {
   private lastRateFetchTime: number = 0;
   private readonly CACHE_DURATION = 5 * 60 * 1000;
 
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   async getEurUsdRate(): Promise<number> {
     const now = Date.now();
@@ -2265,7 +4509,7 @@ export class StockService {
       return this.cachedEurUsdRate;
     }
     try {
-      const quote: any = await yahooFinance.quote('EURUSD=X');
+      const quote = (await yahooFinance.quote('EURUSD=X')) as { regularMarketPrice?: number };
       if (quote?.regularMarketPrice) {
         this.cachedEurUsdRate = quote.regularMarketPrice;
         this.lastRateFetchTime = now;
@@ -2284,7 +4528,9 @@ export class StockService {
     return name.toUpperCase().trim();
   }
 
-  async fetchPrices(symbols: string[]): Promise<Record<string, { price: number; name: string }>> {
+  async fetchPrices(
+    symbols: string[],
+  ): Promise<Record<string, { price: number; name: string }>> {
     const prices: Record<string, { price: number; name: string }> = {};
     const rate = await this.getEurUsdRate();
 
@@ -2292,18 +4538,25 @@ export class StockService {
       symbols.map(async (name) => {
         const symbol = this.getYahooSymbol(name);
         try {
-          const quote: any = await yahooFinance.quote(symbol);
-          if (quote?.regularMarketPrice || quote?.price) {
-            let price = quote.regularMarketPrice || quote.price;
-
+          const quote = (await yahooFinance.quote(symbol)) as {
+            regularMarketPrice?: number;
+            price?: number;
+            currency?: string;
+            shortName?: string;
+            longName?: string;
+          };
+          const price = quote?.regularMarketPrice || quote?.price;
+          if (price !== undefined) {
             // 🌟 On enregistre le prix ET le vrai nom (shortName ou longName)
             prices[symbol] = {
               price: quote.currency === 'USD' ? price / rate : price,
               name: quote.shortName || quote.longName || symbol,
             };
           }
-        } catch (e) {
-          console.error(`❌ Erreur Prix Yahoo pour ${symbol}`, e.message);
+        } catch (e: unknown) {
+          if (e instanceof Error) {
+            console.error(`❌ Erreur Prix Yahoo pour ${symbol}`, e.message);
+          }
         }
       }),
     );
@@ -2320,16 +4573,16 @@ export class StockService {
       const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(cleanedQuery)}&quotesCount=10`;
 
       const response = await fetch(url);
-      const data = await response.json();
+      const data = (await response.json()) as { quotes: any[] };
 
       return data.quotes
         .filter(
-          (q: any) =>
+          (q) =>
             q.quoteType === 'EQUITY' ||
             q.quoteType === 'ETF' ||
             q.quoteType === 'MUTUALFUND',
         )
-        .map((q: any) => ({
+        .map((q) => ({
           symbol: q.symbol,
           name: q.longname || q.shortname || q.symbol,
           exchDisp: q.exchDisp || 'Global',
@@ -2345,24 +4598,21 @@ export class StockService {
 
 <file path="front/app/layout.tsx">
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./provider";
 import { Toaster } from "sonner";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// On importe Inter à la place de Geist
+const inter = Inter({
   subsets: ["latin"],
+  display: "swap", // Améliore le chargement de la police
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
+// J'ai mis à jour le titre pour correspondre à ta DA
 export const metadata: Metadata = {
   title: "Freenary",
-  description: "Generated by create next app",
+  description: "Master your Wealth.",
 };
 
 export default function RootLayout({
@@ -2371,12 +4621,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    // On passe le html en français
+    <html lang="fr" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        // On applique la classe générée par Inter directement sur le body
+        className={`${inter.className} antialiased`}
       >
         <Providers>
-          {children} <Toaster position="top-center" richColors />
+          {children}
+          <Toaster position="top-center" richColors />
         </Providers>
       </body>
     </html>
@@ -2437,6 +4690,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Body,
   UseGuards,
   Request,
@@ -2548,6 +4802,19 @@ export class WealthController {
   }
 
   /**
+   * Met à jour une transaction existante
+   */
+  @Put('transaction/:id')
+  async updateTransaction(
+    @Param('id') id: string,
+    @Body() body: CreateTransactionDto,
+    @Request() req: RequestWithUser,
+  ) {
+    const userId = req.user.sub || req.user.id;
+    return this.wealthService.updateTransaction(id, body, userId || '');
+  }
+
+  /**
    * Lie un portefeuille externe (ex: adresse Ethereum)
    */
   @Post('wallet')
@@ -2581,7 +4848,8 @@ export class WealthController {
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "seed:history": "ts-node prisma/seed-history.ts"
   },
   "dependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -2604,6 +4872,7 @@ export class WealthController {
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "cookie-parser": "^1.4.7",
     "csv-parser": "^3.2.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
@@ -2640,22 +4909,9 @@ export class WealthController {
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
-  }
-}
-</file>
-
-<file path="package.json">
-{
-  "dependencies": {
-    "@nestjs/jwt": "^11.0.2",
-    "axios": "^1.13.6",
-    "bcryptjs": "^3.0.3",
-    "csv-parser": "^3.2.0",
-    "next-themes": "^0.4.6",
-    "yahoo-finance2": "^3.13.2"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6"
+    "@types/cookie-parser": "^1.4.10"
   }
 }
 </file>
@@ -2674,7 +4930,7 @@ export class WealthService {
     private prisma: PrismaService,
     private stockService: StockService,
     private cryptoService: CryptoService,
-  ) { }
+  ) {}
 
   // ==========================================
   // 🤖 CRON JOBS (Tâches automatisées)
@@ -2694,11 +4950,11 @@ export class WealthService {
     const isFirstDayOfMonth = today.getDate() === 1;
 
     for (const user of users) {
-      const { totalWealth } = await this.getWealthData(user.id);
+      const { totalWealth, distribution } = await this.getWealthData(user.id);
 
       if (totalWealth > 0) {
         const lastSnapshot = await this.prisma.historicalData.findFirst({
-          where: { userId: user.id },
+          where: { userId: user.id, category: null },
           orderBy: { date: 'desc' },
         });
 
@@ -2710,6 +4966,14 @@ export class WealthService {
 
           if (isFirstDayOfMonth || isSignificantChange) {
             await this.saveSnapshot(user.id, totalWealth, todayStr);
+            for (const dist of distribution) {
+              await this.saveSnapshot(
+                user.id,
+                dist.value,
+                todayStr,
+                dist.name.toLowerCase(),
+              );
+            }
           } else {
             console.log(
               `⏭️ Variation trop faible (${variationPercent.toFixed(3)}%) pour ${user.email}, snapshot sauté.`,
@@ -2717,14 +4981,27 @@ export class WealthService {
           }
         } else {
           await this.saveSnapshot(user.id, totalWealth, todayStr);
+          for (const dist of distribution) {
+            await this.saveSnapshot(
+              user.id,
+              dist.value,
+              todayStr,
+              dist.name.toLowerCase(),
+            );
+          }
         }
       }
     }
   }
 
-  private async saveSnapshot(userId: string, value: number, date: string) {
+  private async saveSnapshot(
+    userId: string,
+    value: number,
+    date: string,
+    category: string | null = null,
+  ) {
     const existing = await this.prisma.historicalData.findFirst({
-      where: { userId, date },
+      where: { userId, date, category },
     });
     if (existing) {
       await this.prisma.historicalData.update({
@@ -2733,10 +5010,12 @@ export class WealthService {
       });
     } else {
       await this.prisma.historicalData.create({
-        data: { date, value, userId },
+        data: { date, value, userId, category },
       });
     }
-    console.log(`✅ Snapshot enregistré pour l'utilisateur ${userId}`);
+    console.log(
+      `✅ Snapshot enregistré pour l'utilisateur ${userId}${category ? ` [${category}]` : ''}`,
+    );
   }
 
   // ==========================================
@@ -2784,7 +5063,8 @@ export class WealthService {
         } else if (a.category.toLowerCase() === 'pea') {
           const symbol = this.stockService.getYahooSymbol(a.name);
           const stockInfo = liveStockPrices[symbol]; // 🌟 Modification ici
-          if (stockInfo && liveQuantity > 0) dynamicValue = stockInfo.price * liveQuantity; // 🌟 Modification ici
+          if (stockInfo && liveQuantity > 0)
+            dynamicValue = stockInfo.price * liveQuantity; // 🌟 Modification ici
         }
 
         return { ...a, dynamicValue, liveQuantity };
@@ -2801,8 +5081,9 @@ export class WealthService {
     );
     let formattedHistory = sortedHistory.map((h) => ({
       date: new Date(h.date).toLocaleDateString('fr-FR', {
-        day: 'numeric',
-        month: 'short',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
       }),
       value: h.value,
     }));
@@ -2813,8 +5094,9 @@ export class WealthService {
       // On s'assure que le graphique termine TOUJOURS par la valeur exacte à l'instant T
       const todayLabel = "Aujourd'hui";
       const todayDateStr = new Date().toLocaleDateString('fr-FR', {
-        day: 'numeric',
-        month: 'short',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
       });
       const lastPoint = formattedHistory[formattedHistory.length - 1];
 
@@ -2885,10 +5167,11 @@ export class WealthService {
         if (category.toLowerCase() === 'crypto') {
           currentPrice = livePrices[a.name.toLowerCase()]?.eur || null;
         } else if (category.toLowerCase() === 'pea') {
-          const stockInfo = livePrices[this.stockService.getYahooSymbol(a.name)];
+          const stockInfo =
+            livePrices[this.stockService.getYahooSymbol(a.name)];
           if (stockInfo) {
             currentPrice = stockInfo.price; // 🌟 On récupère le prix
-            displayName = stockInfo.name;   // 🌟 On récupère le vrai nom
+            displayName = stockInfo.name; // 🌟 On récupère le vrai nom
           }
         }
 
@@ -2900,7 +5183,7 @@ export class WealthService {
 
         return {
           id: a.id,
-          name: a.name,             // Ticker technique (ex: MC.PA)
+          name: a.name, // Ticker technique (ex: MC.PA)
           displayName: displayName, // 🌟 Vrai nom pour l'affichage (ex: LVMH)
           quantity: liveQuantity,
           currentPrice,
@@ -2923,6 +5206,50 @@ export class WealthService {
       return map;
     }, {});
 
+    // 🌟 NOUVEAU : Récupération de l'historique de la catégorie
+    const history = await this.prisma.historicalData.findMany({
+      where: { userId, category: category.toLowerCase() },
+      orderBy: { date: 'asc' },
+    });
+
+    const sortedHistory = [...history].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    );
+    const formattedHistory = sortedHistory.map((h) => ({
+      date: new Date(h.date).toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }),
+      value: h.value,
+    }));
+
+    if (formattedHistory.length > 0) {
+      const todayLabel = "Aujourd'hui";
+      const todayDateStr = new Date().toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
+      const lastPoint = formattedHistory[formattedHistory.length - 1];
+
+      if (lastPoint.date !== todayDateStr) {
+        formattedHistory.push({
+          date: todayDateStr,
+          value: totalCategoryValue,
+        });
+      } else {
+        lastPoint.value = totalCategoryValue;
+      }
+      formattedHistory[formattedHistory.length - 1].date = todayLabel;
+    } else {
+      const todayLabel = "Aujourd'hui";
+      formattedHistory.push({
+        date: todayLabel,
+        value: totalCategoryValue,
+      });
+    }
+
     return {
       title: category.toUpperCase(),
       totalCategoryValue,
@@ -2932,6 +5259,7 @@ export class WealthService {
           ? ((totalCategoryValue - totalInvested) / totalInvested) * 100
           : 0,
       assets: mappedAssets,
+      historicalData: formattedHistory, // 🌟 NOUVEAU
       transactions: rawTransactions.map((tx) => ({
         id: tx.id,
         date: tx.date.toISOString(),
@@ -2940,6 +5268,8 @@ export class WealthService {
         quantity: tx.quantity,
         assetName: displayNameMap[tx.asset.name] || tx.asset.name,
         label: (tx as any).label || null,
+        createdAt: tx.createdAt?.toISOString() || null,
+        updatedAt: tx.updatedAt?.toISOString() || null,
       })),
     };
   }
@@ -2951,7 +5281,7 @@ export class WealthService {
   async addTransactionData(body: CreateTransactionDto, userId: string) {
     const { type, category, asset, quantity, amount, date, label } = body;
     const parsedAmount = Number(amount);
-    const parsedQuantity = Number(quantity) || 0
+    const parsedQuantity = Number(quantity) || 0;
 
     const isSale =
       type.toLowerCase() === 'vente' || type.toLowerCase() === 'retrait';
@@ -3130,12 +5460,225 @@ export class WealthService {
       if (deltaHistory !== 0) {
         const txDateStr = transaction.date.toISOString().split('T')[0];
         await tx.historicalData.updateMany({
-          where: { userId, date: { gte: txDateStr } },
+          where: { userId, date: { gte: txDateStr }, category: null },
+          data: { value: { increment: deltaHistory } },
+        });
+        await tx.historicalData.updateMany({
+          where: {
+            userId,
+            date: { gte: txDateStr },
+            category: transaction.category.toLowerCase(),
+          },
           data: { value: { increment: deltaHistory } },
         });
       }
 
       return { success: true };
+    });
+  }
+
+  async updateTransaction(
+    id: string,
+    body: CreateTransactionDto,
+    userId: string,
+  ) {
+    // La méthode la plus sûre est d'annuler l'ancienne transaction puis d'appliquer les nouvelles valeurs.
+    // Pour conserver le même ID et la date de création, on fait tout dans une transaction Prisma.
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. Récupération de l'ancienne transaction
+      const oldTx = await tx.transaction.findFirst({
+        where: { id, userId },
+        include: { asset: true },
+      });
+      if (!oldTx) throw new NotFoundException('Transaction non trouvée');
+
+      const oldAsset = oldTx.asset;
+      let revertedQuantity = oldAsset.quantity || 0;
+      let revertedTotalValue = oldAsset.totalValue || 0;
+      let deltaHistoryRevert = 0;
+
+      // Annulation de l'ancienne transaction
+      if (
+        ['achat', 'dépôt', 'in', 'intérêts', 'dividendes'].includes(
+          oldTx.type.toLowerCase(),
+        )
+      ) {
+        revertedQuantity -= oldTx.quantity || 0;
+        revertedTotalValue -= oldTx.amount;
+        deltaHistoryRevert = -oldTx.amount;
+      } else if (
+        ['vente', 'retrait', 'out'].includes(oldTx.type.toLowerCase())
+      ) {
+        revertedQuantity += oldTx.quantity || 0;
+        let capitalToRestore = oldTx.amount;
+        const currentAssetQuantity = oldAsset.quantity || 0;
+        if (
+          ['crypto', 'pea'].includes(oldAsset.category.toLowerCase()) &&
+          currentAssetQuantity > 0
+        ) {
+          const currentPru = oldAsset.totalValue / currentAssetQuantity;
+          capitalToRestore = (oldTx.quantity || 0) * currentPru;
+        }
+        revertedTotalValue += capitalToRestore;
+        deltaHistoryRevert = oldTx.amount;
+      } else if (
+        oldTx.type.toLowerCase() === 'ajustement' ||
+        oldTx.type.toLowerCase() === 'update_balance'
+      ) {
+        revertedTotalValue -= oldTx.amount;
+        deltaHistoryRevert = -oldTx.amount;
+      }
+
+      // Mise à jour temporaire de l'ancien actif (si l'actif a changé de nom on gère après)
+      await tx.asset.update({
+        where: { id: oldAsset.id },
+        data: {
+          quantity: Math.max(0, revertedQuantity),
+          totalValue: Math.max(0, revertedTotalValue),
+        },
+      });
+
+      // Recalcul historique inverse
+      if (deltaHistoryRevert !== 0) {
+        const txDateStr = oldTx.date.toISOString().split('T')[0];
+        await tx.historicalData.updateMany({
+          where: { userId, date: { gte: txDateStr }, category: null },
+          data: { value: { increment: deltaHistoryRevert } },
+        });
+        await tx.historicalData.updateMany({
+          where: {
+            userId,
+            date: { gte: txDateStr },
+            category: oldTx.category.toLowerCase(),
+          },
+          data: { value: { increment: deltaHistoryRevert } },
+        });
+      }
+
+      // 2. Application de la nouvelle transaction
+      const { type, category, asset, quantity, amount, date, label } = body;
+      const parsedAmount = Number(amount);
+      const parsedQuantity = Number(quantity) || 0;
+
+      const isSale =
+        type.toLowerCase() === 'vente' || type.toLowerCase() === 'retrait';
+      const isUpdate =
+        type.toLowerCase() === 'update_balance' ||
+        type.toLowerCase() === 'ajustement';
+      const isInterest =
+        type.toLowerCase() === 'intérêts' ||
+        type.toLowerCase() === 'dividendes';
+
+      let currentAsset = await tx.asset.findFirst({
+        where: {
+          name: { equals: asset, mode: 'insensitive' },
+          category: category.toLowerCase(),
+          userId,
+        },
+      });
+
+      let newQuantity = parsedQuantity;
+      let newTotalValue = parsedAmount;
+      let transactionAmount = parsedAmount;
+      let transactionType = type;
+
+      if (currentAsset) {
+        const aq = currentAsset.quantity || 0;
+        const av = currentAsset.totalValue || 0;
+
+        if (isUpdate) {
+          const diff = parsedAmount - av;
+          newTotalValue = parsedAmount;
+          newQuantity = aq;
+          transactionAmount = Math.abs(diff);
+          transactionType = diff > 0 ? 'dépôt' : 'retrait';
+        } else if (isInterest) {
+          newTotalValue = av + parsedAmount;
+          newQuantity = aq;
+        } else if (!isSale) {
+          newQuantity = aq + parsedQuantity;
+          newTotalValue = av + parsedAmount;
+        } else {
+          if (['crypto', 'pea'].includes(category.toLowerCase())) {
+            const currentPRU = aq > 0 ? av / aq : 0;
+            const capitalRemoved = parsedQuantity * currentPRU;
+            newQuantity = Math.max(0, aq - parsedQuantity);
+            newTotalValue = Math.max(0, av - capitalRemoved);
+          } else {
+            newQuantity = Math.max(0, aq - parsedQuantity);
+            newTotalValue = Math.max(0, av - parsedAmount);
+          }
+        }
+        if (newQuantity <= 0.000001) {
+          newQuantity = 0;
+          newTotalValue = 0;
+        }
+
+        currentAsset = await tx.asset.update({
+          where: { id: currentAsset.id },
+          data: { quantity: newQuantity, totalValue: newTotalValue },
+        });
+      } else {
+        currentAsset = await tx.asset.create({
+          data: {
+            name: asset,
+            category: category.toLowerCase(),
+            quantity: isSale ? 0 : parsedQuantity,
+            totalValue: isSale ? 0 : parsedAmount,
+            user: { connect: { id: userId } },
+          },
+        });
+        if (isUpdate) {
+          transactionAmount = parsedAmount;
+          transactionType = 'dépôt';
+        }
+      }
+
+      // Mise à jour de la transaction (conserve createdAt)
+      await tx.transaction.update({
+        where: { id },
+        data: {
+          type: transactionType,
+          category: category.toLowerCase(),
+          amount: transactionAmount,
+          quantity: isUpdate ? 0 : parsedQuantity,
+          date: new Date(date),
+          label: label || null,
+          asset: { connect: { id: currentAsset.id } },
+        },
+      });
+
+      // Recalcul historique pour la nouvelle date
+      let deltaHistoryApply = 0;
+      if (
+        ['achat', 'dépôt', 'in', 'intérêts', 'dividendes'].includes(
+          transactionType.toLowerCase(),
+        )
+      ) {
+        deltaHistoryApply = transactionAmount;
+      } else if (
+        ['vente', 'retrait', 'out'].includes(transactionType.toLowerCase())
+      ) {
+        deltaHistoryApply = -transactionAmount;
+      }
+
+      if (deltaHistoryApply !== 0) {
+        const newTxDateStr = new Date(date).toISOString().split('T')[0];
+        await tx.historicalData.updateMany({
+          where: { userId, date: { gte: newTxDateStr }, category: null },
+          data: { value: { increment: deltaHistoryApply } },
+        });
+        await tx.historicalData.updateMany({
+          where: {
+            userId,
+            date: { gte: newTxDateStr },
+            category: category.toLowerCase(),
+          },
+          data: { value: { increment: deltaHistoryApply } },
+        });
+      }
+
+      return { success: true, message: 'Opération modifiée avec succès !' };
     });
   }
 
@@ -3165,345 +5708,252 @@ export class WealthService {
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  Tooltip,
-  XAxis,
-} from "recharts";
-import {
-  Bitcoin,
-  TrendingUp,
-  Wallet,
-  Briefcase,
-  Plus,
-  Landmark,
-  Eye,
-  EyeOff,
-  Settings,
-} from "lucide-react";
-import SettingsModal from "@/components/settings-modal";
-import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
-import AddTransactionModal from "@/components/add-transaction";
-import LoginScreen from "@/components/login-screen";
-import { usePrivacy } from "@/app/provider";
-import { formatCurrency } from "@/lib/utils";
+import { AnimatePresence, motion } from "framer-motion";
+import { toast } from "sonner";
 
-interface DistributionData {
-  name: string;
-  value: number;
-  percentage: string;
-  color: string;
-}
-interface HistoricalData {
-  date: string;
-  value: number;
-}
-interface WealthData {
-  totalWealth: number;
-  distribution: DistributionData[];
-  historicalData: HistoricalData[];
-}
+import { GlobalData, CategoryDetailsData, Transaction } from "@/types";
+import LoginScreen from "@/components/login-screen";
+import AddTransactionModal from "@/components/add-transaction";
+import Sidebar from "@/components/layout/sidebar";
+import HeaderMobile from "@/components/layout/header-mobile";
+import PortfolioChart from "@/components/dashboard/portfolio-chart";
+import GlobalDistribution from "@/components/dashboard/global-distribution";
+import AssetTable from "@/components/dashboard/asset-table";
+
+const categoryNames: Record<string, string> = {
+  global: "Vue Globale",
+  "epargne-salariale": "Épargne Salariale",
+  epargne: "Épargne",
+  crypto: "Crypto",
+  pea: "PEA",
+  "compte-courant": "Compte Courant",
+};
 
 export default function Dashboard() {
-  const router = useRouter();
-  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const { isPrivacyMode, togglePrivacyMode } = usePrivacy();
-  const [data, setData] = useState<WealthData | null>(null);
-  const [userName, setUserName] = useState<string>("");
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [currentCategory, setCurrentCategory] = useState("global");
+  const [globalData, setGlobalData] = useState<GlobalData | null>(null);
+  const [categoryData, setCategoryData] = useState<CategoryDetailsData | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [preselectedAsset, setPreselectedAsset] = useState<{ ticker: string; name: string } | null>(null);
+  const [transactionToEdit, setTransactionToEdit] = useState<Transaction | null>(null);
+  const [isToTheMoon, setIsToTheMoon] = useState(false);
+
+  const handleToTheMoon = () => {
+    if (isToTheMoon) return;
+    setIsToTheMoon(true);
+    setTimeout(() => {
+      setIsToTheMoon(false);
+    }, 4000);
+  };
 
   useEffect(() => {
-    const savedToken = localStorage.getItem("wealth_token");
-    if (savedToken) {
+    const checkAuth = async () => {
       try {
-        const payload = JSON.parse(
-          window.atob(
-            savedToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"),
-          ),
-        );
-        const name =
-          payload.name ||
-          (payload.email ? payload.email.split("@")[0] : "Aventurier");
-        setUserName(name.charAt(0).toUpperCase() + name.slice(1));
-      } catch (error) {
-        localStorage.removeItem("wealth_token");
-        setIsAuthenticated(false);
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
+          credentials: "include",
+        });
+        if (res.ok) {
+          setIsAuthenticated(true);
+        }
+      } catch (err) {
+        console.error("Erreur auth/me:", err);
+      } finally {
         setLoading(false);
-        return;
       }
-      setToken(savedToken);
-      setIsAuthenticated(true);
-    } else {
-      setLoading(false);
-    }
+    };
+    checkAuth();
   }, []);
 
-  const fetchWealthData = useCallback(async () => {
-    if (!token) return;
+  const fetchGlobalData = useCallback(async () => {
+    if (!isAuthenticated) return;
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/wealth`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
-      if (res.status === 401) {
-        handleLogout();
-        throw new Error("Session expirée");
+      if (res.ok) {
+        setGlobalData(await res.json());
       }
-      const json: WealthData = await res.json();
-      setData(json);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [isAuthenticated]);
+
+  const fetchCategoryData = useCallback(async () => {
+    if (!isAuthenticated || currentCategory === "global") return;
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/wealth/${currentCategory}`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        setCategoryData(await res.json());
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, [isAuthenticated, currentCategory]);
 
   useEffect(() => {
-    if (isAuthenticated) fetchWealthData();
-  }, [isAuthenticated, fetchWealthData]);
+    if (isAuthenticated) {
+      fetchGlobalData();
+      if (currentCategory !== "global") {
+        fetchCategoryData();
+      }
+    }
+  }, [isAuthenticated, currentCategory, fetchGlobalData, fetchCategoryData]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("wealth_token");
+  const handleLogout = async () => {
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (e) {
+      console.error("Erreur lors de la déconnexion", e);
+    }
     localStorage.removeItem("wealth_user_id");
     setIsAuthenticated(false);
-    setToken(null);
   };
 
-  if (loading && isAuthenticated)
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="h-10 w-32 bg-muted rounded-md animate-pulse"></div>
-      </div>
-    );
-  if (!isAuthenticated)
+  const handleDeleteTransaction = async (id: string) => {
+    if (!confirm("Supprimer cette transaction ?")) return;
+    if (!isAuthenticated) return;
+
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Transaction supprimée !");
+        fetchGlobalData();
+        if (currentCategory !== "global") fetchCategoryData();
+      } else {
+        toast.error("Erreur lors de la suppression");
+      }
+    } catch (err) {
+      toast.error("Erreur réseau");
+    }
+  };
+
+  if (!isAuthenticated && !loading) {
     return (
       <LoginScreen
-        onLoginSuccess={(t) => {
-          setToken(t);
+        onLoginSuccess={() => {
           setIsAuthenticated(true);
-          setLoading(true);
         }}
       />
     );
+  }
+
+  if (loading || !globalData) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  const isFixedAsset = ["epargne", "compte-courant", "epargne-salariale"].includes(currentCategory);
 
   return (
-    <div className="min-h-dvh bg-background transition-colors duration-300 pb-24">
-      <div className="bg-card/80 backdrop-blur-xl border-b border-border transition-colors duration-300">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <motion.p
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-sm md:text-base text-muted-foreground mb-4"
-              >
-                Bonjour,{" "}
-                <span className="font-medium text-foreground">{userName}</span>{" "}
-                👋
-              </motion.p>
-              <p className="text-xs text-muted-foreground font-medium tracking-wider uppercase mb-1">
-                Patrimoine total
-              </p>
-              <motion.h1
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-3xl md:text-4xl text-foreground font-light tracking-tight"
-              >
-                {formatCurrency(data?.totalWealth, isPrivacyMode)} €
-              </motion.h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={togglePrivacyMode}
-                className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-              >
-                {isPrivacyMode ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-              <ThemeSwitcher />
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center hover:bg-muted/80"
-              >
-                <Settings className="w-4 h-4 text-muted-foreground" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className="flex flex-col md:flex-row min-h-screen w-full bg-background overflow-hidden animate-in fade-in duration-500">
+      <HeaderMobile isMobileMenuOpen={isMobileMenuOpen} setIsMobileMenuOpen={setIsMobileMenuOpen} />
 
-      <div className="max-w-6xl mx-auto px-4 md:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-8 space-y-8">
-            <div className="bg-card border border-border rounded-3xl p-6 shadow-premium">
-              <h2 className="text-sm text-muted-foreground font-medium mb-6">
-                Évolution historique
-              </h2>
-              <div className="h-48 md:h-64 mb-3">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={data?.historicalData}>
-                    <XAxis dataKey="date" hide />
-                    {/* 🛡️ CORRECTION : Tooltip respecte le mode discrétion */}
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "var(--card)",
-                        color: "var(--foreground)",
-                        borderRadius: "12px",
-                        border: "1px solid var(--border)",
-                      }}
-                      labelFormatter={(date) => `${date}`}
-                      formatter={(value?: number) => [
-                        isPrivacyMode
-                          ? "**** €"
-                          : `${value?.toLocaleString("fr-FR") ?? "0"} €`,
-                        "Valeur",
-                      ]}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="value"
-                      stroke="var(--primary)"
-                      strokeWidth={3}
-                      dot={true}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="fixed inset-0 bg-slate-900/40 z-40 md:hidden backdrop-blur-sm"
+          ></motion.div>
+        )}
+      </AnimatePresence>
 
-            <div className="bg-card border border-border rounded-3xl p-6 shadow-premium">
-              <h2 className="text-sm text-muted-foreground font-medium mb-6">
-                Répartition réelle
-              </h2>
-              <div className="flex flex-col md:flex-row items-center gap-8">
-                <div className="w-40 h-40">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={data?.distribution}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={50}
-                        outerRadius={75}
-                        paddingAngle={3}
-                        dataKey="value"
-                        strokeWidth={0}
-                      >
-                        {data?.distribution.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="flex-1 w-full space-y-3">
-                  {data?.distribution.map((item, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: item.color }}
-                        />
-                        <span className="text-sm text-muted-foreground font-light">
-                          {item.name}
-                        </span>
-                      </div>
-                      <span className="text-sm text-foreground font-medium">
-                        {data && data.totalWealth > 0
-                          ? Math.round((item.value / data.totalWealth) * 100)
-                          : 0}
-                        %
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:col-span-4 space-y-4">
-            <h2 className="text-sm text-muted-foreground font-medium px-1 mb-2">
-              Vos portefeuilles
-            </h2>
-            {data?.distribution.map((asset, index) => (
-              <div
-                key={index}
-                onClick={() =>
-                  router.push(
-                    `/asset/${asset.name.toLowerCase().replace(" ", "-")}`,
-                  )
-                }
-                className="bg-card/80 backdrop-blur-xl p-5 rounded-2xl border border-border flex items-center justify-between shadow-premium cursor-pointer group"
-              >
-                <div className="flex items-center gap-4">
-                  <div
-                    className="w-12 h-12 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform"
-                    style={{ backgroundColor: `${asset.color}15` }}
-                  >
-                    {asset.name === "COMPTE COURANT" && (
-                      <Landmark size={24} color={asset.color} />
-                    )}
-                    {asset.name === "CRYPTO" && (
-                      <Bitcoin size={24} color={asset.color} />
-                    )}
-                    {asset.name === "PEA" && (
-                      <TrendingUp size={24} color={asset.color} />
-                    )}
-                    {asset.name === "EPARGNE" && (
-                      <Wallet size={24} color={asset.color} />
-                    )}
-                    {asset.name === "EPARGNE-SALARIALE" && (
-                      <Briefcase size={24} color={asset.color} />
-                    )}
-                  </div>
-                  <p className="text-sm font-medium text-foreground">
-                    {asset.name}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-base text-foreground font-medium">
-                    {formatCurrency(asset.value, isPrivacyMode)} €
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <motion.div
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        className="fixed bottom-6 right-6 md:bottom-10 md:right-10 z-40"
-      >
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="w-14 h-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:scale-105 shadow-premium"
-        >
-          <Plus className="w-6 h-6" />
-        </button>
-      </motion.div>
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+      <Sidebar
+        globalData={globalData}
+        currentCategory={currentCategory}
+        onCategorySelect={(cat) => {
+          setCurrentCategory(cat);
+          setIsMobileMenuOpen(false);
+        }}
+        isMobileMenuOpen={isMobileMenuOpen}
         onLogout={handleLogout}
+        onToTheMoon={handleToTheMoon}
       />
-      <AddTransactionModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSuccess={fetchWealthData}
-      />
+
+      <main className="flex-1 h-[calc(100vh-64px)] md:h-screen overflow-y-auto bg-background relative w-full">
+        <PortfolioChart
+          currentCategory={currentCategory}
+          categoryName={categoryNames[currentCategory] || currentCategory}
+          globalData={globalData}
+          categoryData={categoryData}
+          isToTheMoon={isToTheMoon}
+        />
+
+        <div className="p-4 md:p-8 lg:p-12 space-y-8 lg:space-y-12 max-w-5xl mx-auto pb-24 md:pb-12">
+          {currentCategory === "global" ? (
+            <GlobalDistribution globalData={globalData} />
+          ) : (
+            <AssetTable
+              categoryData={categoryData}
+              isFixedAsset={isFixedAsset}
+              onAddTransaction={(asset) => {
+                setPreselectedAsset(asset || null);
+                setIsModalOpen(true);
+              }}
+              onEditTransaction={(tx) => {
+                setTransactionToEdit(tx);
+                setIsModalOpen(true);
+              }}
+              onDeleteTransaction={handleDeleteTransaction}
+            />
+          )}
+        </div>
+      </main>
+
+      <AnimatePresence>
+        {isModalOpen && (
+          <AddTransactionModal
+            isOpen={isModalOpen}
+            onClose={() => {
+              setIsModalOpen(false);
+              setTransactionToEdit(null);
+              setPreselectedAsset(null);
+            }}
+            onSuccess={() => {
+              fetchGlobalData();
+              if (currentCategory !== "global") fetchCategoryData();
+              setIsModalOpen(false);
+              setTransactionToEdit(null);
+              setPreselectedAsset(null);
+            }}
+            transactionToEdit={transactionToEdit}
+            defaultCategory={currentCategory === "global" ? undefined : currentCategory}
+            preselectedAsset={preselectedAsset}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isToTheMoon && (
+          <motion.div
+            initial={{ x: "-20vw", y: "110vh", rotate: 45 }}
+            animate={{ x: "120vw", y: "-20vh", rotate: 45 }}
+            transition={{ duration: 2.5, ease: "easeIn" }}
+            className="fixed z-50 text-[10rem] pointer-events-none drop-shadow-2xl flex items-center justify-center"
+          >
+            🚀
+            <div className="absolute top-1/2 right-[80%] w-[150vw] h-12 bg-gradient-to-r from-transparent via-purple-500 to-purple-600 blur-xl opacity-80 -translate-y-1/2 rounded-full"></div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -3569,13 +6019,14 @@ model HistoricalData {
   id        String   @id @default(uuid())
   date      String   
   value     Float      
+  category  String?
   assetId   String?  
   asset     Asset?   @relation(fields: [assetId], references: [id], onDelete: Cascade)  
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, date])
-
+  @@unique([userId, date, category])
 }
 
 model Transaction {
@@ -3587,6 +6038,9 @@ model Transaction {
   quantity  Float?   
   price     Float?   
   label     String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
   
   assetId   String   
   asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
@@ -3613,6 +6067,7 @@ interface AddTransactionModalProps {
   onSuccess: () => void;
   defaultCategory?: string;
   preselectedAsset?: { ticker: string; name: string } | null;
+  transactionToEdit?: any; // NEW
 }
 
 export default function AddTransactionModal({
@@ -3621,6 +6076,7 @@ export default function AddTransactionModal({
   onSuccess,
   defaultCategory,
   preselectedAsset,
+  transactionToEdit,
 }: AddTransactionModalProps) {
   const [category, setCategory] = useState(defaultCategory || "crypto");
   const [type, setType] = useState("achat");
@@ -3637,21 +6093,33 @@ export default function AddTransactionModal({
 
   useEffect(() => {
     if (isOpen) {
-      if (defaultCategory) setCategory(defaultCategory);
-      if (preselectedAsset) {
-        setAsset(preselectedAsset.ticker);
-        setAssetName(preselectedAsset.name);
+      if (transactionToEdit) {
+        setCategory(transactionToEdit.category || "crypto");
+        setType(transactionToEdit.type || "achat");
+        setAmount(transactionToEdit.amount?.toString() || "");
+        setQuantity(transactionToEdit.quantity?.toString() || "");
+        setAsset(transactionToEdit.assetName || ""); // Dans la V1 on triche avec name
+        setAssetName(transactionToEdit.assetName || "");
+        setDate(new Date(transactionToEdit.date).toISOString().split("T")[0]);
+        setLabel(transactionToEdit.label || "");
       } else {
-        setAsset("");
-        setAssetName("");
+        if (defaultCategory) setCategory(defaultCategory);
+        if (preselectedAsset) {
+          setAsset(preselectedAsset.ticker);
+          setAssetName(preselectedAsset.name);
+        } else {
+          setAsset("");
+          setAssetName("");
+        }
+        setType("achat");
+        setAmount("");
+        setQuantity("");
+        setDate(new Date().toISOString().split("T")[0]);
+        setLabel("");
       }
-      setType("achat");
-      setAmount("");
-      setQuantity("");
-      setDate(new Date().toISOString().split("T")[0]);
       setSuggestions([]);
     }
-  }, [isOpen, defaultCategory, preselectedAsset]);
+  }, [isOpen, defaultCategory, preselectedAsset, transactionToEdit]);
 
   const isFixedAsset = [
     "epargne",
@@ -3661,7 +6129,8 @@ export default function AddTransactionModal({
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
-      if (assetName.length >= 2 && !isFixedAsset && !asset) {
+      // Evite la recherche si on édite déjà avec un actif défini
+      if (assetName.length >= 2 && !isFixedAsset && !asset && !transactionToEdit) {
         if (category === "pea") fetchSuggestions("search/stocks", assetName);
         else if (category === "crypto")
           fetchSuggestions("search/crypto", assetName);
@@ -3670,16 +6139,15 @@ export default function AddTransactionModal({
       }
     }, 400);
     return () => clearTimeout(delayDebounceFn);
-  }, [assetName, category, isFixedAsset, asset]);
+  }, [assetName, category, isFixedAsset, asset, transactionToEdit]);
 
   const fetchSuggestions = async (endpoint: string, query: string) => {
     setIsSearching(true);
     try {
-      const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/wealth/${endpoint}?q=${query}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         },
       );
       const data = await res.json();
@@ -3695,35 +6163,34 @@ export default function AddTransactionModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    const token = localStorage.getItem("wealth_token");
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
 
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            category,
-            type,
-            asset: asset || assetName,
-            quantity: isFixedAsset ? 0 : quantity ? parseFloat(quantity) : 0,
-            amount: parseFloat(amount),
-            date,
-            label: label || undefined,
-          }),
+      const method = transactionToEdit ? "PUT" : "POST";
+      const url = transactionToEdit
+        ? `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction/${transactionToEdit.id}`
+        : `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction`;
+
+      const response = await fetch(url, {
+        method,
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          category,
+          type,
+          asset: asset || assetName,
+          quantity: isFixedAsset ? 0 : quantity ? parseFloat(quantity) : 0,
+          amount: parseFloat(amount),
+          date,
+          label: label || undefined,
+        }),
+      });
 
       if (response.ok) {
-        toast.success("Opération enregistrée !");
+        toast.success(
+          transactionToEdit ? "Opération modifiée !" : "Opération enregistrée !"
+        );
         onClose();
         resetForm();
         onSuccess();
@@ -3751,70 +6218,74 @@ export default function AddTransactionModal({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm"
           />
+          
           <motion.div
-            initial={{ y: 50, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 50, opacity: 0 }}
-            className="w-full sm:max-w-md bg-card rounded-t-[2rem] sm:rounded-[2rem] shadow-premium border border-border relative z-10 max-h-[90vh] flex flex-col"
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="bg-card w-full max-w-md rounded-[2rem] shadow-2xl relative z-10 border border-border"
           >
-            <div className="shrink-0 border-b border-border px-6 py-5 flex items-center justify-between">
+            <div className="px-8 pt-8 pb-4 flex justify-between items-start">
               <div>
-                <h2 className="text-xl text-foreground font-light tracking-tight">
-                  Nouvelle opération
+                <h2 className="text-2xl font-bold text-foreground mb-1 tracking-tight">
+                  {transactionToEdit ? "Modifier l'opération" : "Nouvelle opération"}
                 </h2>
-                <p className="text-xs text-muted-foreground font-light">
-                  Mettez à jour votre patrimoine
+                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
+                  {transactionToEdit ? "Édition Manuelle" : "Saisie Manuelle"}
                 </p>
               </div>
               <button
                 onClick={onClose}
-                className="w-9 h-9 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors"
+                className="w-8 h-8 bg-muted rounded-full flex items-center justify-center text-muted-foreground hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
               >
-                <X className="w-5 h-5 text-muted-foreground" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto">
+            <div className="p-8 space-y-6 max-h-[75vh] overflow-y-auto">
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
-                      Catégorie
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
+                      Poche
                     </label>
                     <select
                       value={category}
                       onChange={(e) => {
                         setCategory(e.target.value);
-                        resetForm();
+                        if (!transactionToEdit) resetForm();
                       }}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none appearance-none cursor-pointer"
+                      disabled={!!transactionToEdit}
+                      className="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-primary focus:ring-1 focus:ring-primary appearance-none cursor-pointer disabled:opacity-50"
                     >
                       <option value="compte-courant">Compte Courant</option>
-                      <option value="crypto">Crypto-actifs</option>
-                      <option value="pea">Bourse (PEA/CTO)</option>
+                      <option value="crypto">Crypto</option>
+                      <option value="pea">PEA</option>
                       <option value="epargne">Épargne</option>
                       <option value="epargne-salariale">Ép. Salariale</option>
                     </select>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
-                      Type
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
+                      Direction
                     </label>
                     <select
                       value={type}
                       onChange={(e) => setType(e.target.value)}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none appearance-none cursor-pointer"
+                      className="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-primary focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
                     >
-                      <option value="achat">Dépôt / Achat</option>
-                      <option value="vente">Retrait / Vente</option>
+                      <option value="achat">Achat / Dépôt</option>
+                      <option value="vente">Vente / Retrait</option>
                       <option value="intérêts">
                         {isFixedAsset ? "Versement Intérêts" : "Dividendes"}
                       </option>
@@ -3826,15 +6297,16 @@ export default function AddTransactionModal({
                     </select>
                   </div>
                 </div>
-                {category === "epargne-salariale" && (
-                  <div className="space-y-1.5 mt-2">
-                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
-                      Motif / Origine du versement
-                    </label>
+
+                <div>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
+                    Libellé de l&apos;opération
+                  </label>
+                  {category === "epargne-salariale" ? (
                     <select
                       value={label}
                       onChange={(e) => setLabel(e.target.value)}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none appearance-none cursor-pointer"
+                      className="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-primary focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
                     >
                       <option value="">Sélectionner un motif (Optionnel)</option>
                       <option value="Participation">Participation</option>
@@ -3843,12 +6315,20 @@ export default function AddTransactionModal({
                       <option value="Abondement">Abondement</option>
                       <option value="Arbitrage">Arbitrage / Fusion de fonds</option>
                     </select>
-                  </div>
-                )}
+                  ) : (
+                    <input
+                      type="text"
+                      value={label}
+                      onChange={(e) => setLabel(e.target.value)}
+                      placeholder="Ex: Salaire, Virement..."
+                      className="w-full h-12 px-4 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
+                    />
+                  )}
+                </div>
 
-                <div className="space-y-1.5 relative">
-                  <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
-                    {isFixedAsset ? "Nom du compte" : "Nom de l'actif"}
+                <div className="relative">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
+                    {isFixedAsset ? "Nom du compte" : "Actif concerné"}
                   </label>
                   {category === "epargne" ? (
                     <select
@@ -3857,7 +6337,8 @@ export default function AddTransactionModal({
                         setAssetName(e.target.value);
                         setAsset("");
                       }}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none cursor-pointer"
+                      disabled={!!transactionToEdit}
+                      className="w-full h-12 px-4 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50 disabled:opacity-50"
                       required
                     >
                       <option value="">Choisir un livret...</option>
@@ -3878,31 +6359,35 @@ export default function AddTransactionModal({
                         setAssetName(e.target.value);
                         setAsset(e.target.value);
                       }}
+                      disabled={!!transactionToEdit}
                       placeholder={
                         category === "compte-courant"
                           ? "Ex: BNP, Boursorama..."
                           : "Ex: PEE Amundi..."
                       }
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
+                      className="w-full h-12 px-4 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50 disabled:opacity-50"
                     />
                   ) : (
                     <div className="relative">
-                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
+                      <Search className="absolute left-0 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <input
                         type="text"
                         required
                         value={assetName}
                         onChange={(e) => setAssetName(e.target.value)}
-                        onFocus={() => setShowSuggestions(true)}
+                        onFocus={() => {
+                          if (!transactionToEdit) setShowSuggestions(true);
+                        }}
+                        disabled={!!transactionToEdit}
                         placeholder={
                           category === "pea"
-                            ? "Rechercher Apple, LVMH..."
-                            : "Bitcoin, Ethereum..."
+                            ? "Ex: Apple, LVMH..."
+                            : "Ex: Bitcoin, Ethereum..."
                         }
-                        className="w-full h-12 pl-11 pr-10 bg-muted border-none rounded-xl text-foreground font-light outline-none"
+                        className="w-full h-12 pl-6 pr-10 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50 disabled:opacity-50"
                       />
                       {isSearching && (
-                        <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary animate-spin" />
+                        <Loader2 className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-primary animate-spin" />
                       )}
                     </div>
                   )}
@@ -3910,12 +6395,13 @@ export default function AddTransactionModal({
                   <AnimatePresence>
                     {showSuggestions &&
                       suggestions.length > 0 &&
-                      !isFixedAsset && (
+                      !isFixedAsset &&
+                      !transactionToEdit && (
                         <motion.div
                           initial={{ opacity: 0, y: -10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0 }}
-                          className="absolute z-20 w-full mt-2 bg-card border border-border rounded-2xl shadow-2xl max-h-56 overflow-y-auto overflow-x-hidden"
+                          className="absolute z-20 w-full mt-2 bg-card border border-border rounded-xl shadow-2xl max-h-56 overflow-y-auto overflow-x-hidden"
                         >
                           {suggestions.map((s, i) => (
                             <div
@@ -3925,7 +6411,7 @@ export default function AddTransactionModal({
                                 setAssetName(s.name);
                                 setShowSuggestions(false);
                               }}
-                              className="p-4 hover:bg-primary/5 cursor-pointer flex justify-between items-center border-b border-border last:border-none group"
+                              className="p-3 hover:bg-muted/50 cursor-pointer flex justify-between items-center border-b border-border last:border-none group"
                             >
                               <div className="flex items-center gap-3">
                                 {s.thumb && (
@@ -3936,10 +6422,10 @@ export default function AddTransactionModal({
                                   />
                                 )}
                                 <div className="flex flex-col">
-                                  <span className="text-sm font-medium">
+                                  <span className="text-sm font-semibold">
                                     {s.name}
                                   </span>
-                                  <span className="text-[10px] text-muted-foreground uppercase">
+                                  <span className="text-[10px] text-muted-foreground uppercase font-bold">
                                     {s.ticker ? `${s.ticker} • ` : ""}
                                     {s.exchDisp || s.symbol}
                                   </span>
@@ -3958,8 +6444,8 @@ export default function AddTransactionModal({
                 <div
                   className={`grid ${isFixedAsset ? "grid-cols-1" : "grid-cols-2 gap-4"}`}
                 >
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
                       Date
                     </label>
                     <input
@@ -3967,12 +6453,12 @@ export default function AddTransactionModal({
                       required
                       value={date}
                       onChange={(e) => setDate(e.target.value)}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
+                      className="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     />
                   </div>
                   {!isFixedAsset && (
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
+                    <div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
                         Quantité
                       </label>
                       <input
@@ -3983,41 +6469,43 @@ export default function AddTransactionModal({
                         placeholder="0.00"
                         value={quantity}
                         onChange={(e) => setQuantity(e.target.value)}
-                        className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
+                        className="w-full h-12 px-4 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
                       />
                     </div>
                   )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
+                <div>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
                     {type === "update_balance"
                       ? "Nouveau Solde Total Actuel (€)"
-                      : "Montant de l'opération (€)"}
+                      : "Montant (€)"}
                   </label>
                   <input
                     type="number"
                     min="0"
                     step="any"
                     required
-                    placeholder="Ex: 1500"
+                    placeholder="0.00"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
+                    className="w-full bg-transparent border-b-2 border-border py-2 text-foreground font-bold tracking-tight text-4xl outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/30"
                   />
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full h-14 mt-4 bg-primary text-primary-foreground rounded-2xl transition-all hover:opacity-90 font-medium tracking-wide disabled:opacity-50 shadow-premium active:scale-[0.98]"
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-5 h-5 animate-spin mx-auto" />
-                  ) : (
-                    "Valider"
-                  )}
-                </button>
+                <div className="pt-4">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full h-14 bg-foreground text-card rounded-xl font-bold text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg shadow-slate-900/10 tracking-wide disabled:opacity-50 disabled:hover:scale-100 flex items-center justify-center"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      transactionToEdit ? "Sauvegarder les modifications" : "Valider l'opération"
+                    )}
+                  </button>
+                </div>
               </form>
             </div>
           </motion.div>
@@ -4103,12 +6591,11 @@ export default function CategoryDetail() {
   ].includes(category as string);
 
   const fetchDetails = useCallback(async () => {
-    const token = localStorage.getItem("wealth_token");
-    if (!category || !token) return;
+    if (!category) return;
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/wealth/${category.toString().toLowerCase()}`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        { credentials: "include" },
       );
       if (!res.ok) throw new Error("Erreur serveur");
       setData(await res.json());
@@ -4126,10 +6613,9 @@ export default function CategoryDetail() {
   const handleDelete = async (id: string) => {
     if (!confirm("Supprimer cette transaction ?")) return;
     try {
-      const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction/${id}`,
-        { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+        { method: "DELETE", credentials: "include" },
       );
       if (res.ok) {
         toast.success("Supprimée !");
@@ -4147,14 +6633,13 @@ export default function CategoryDetail() {
     if (!assetToUpdate) return;
     setIsUpdating(true);
     try {
-      const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             category: category as string,

@@ -11,7 +11,7 @@ export class WealthService {
     private prisma: PrismaService,
     private stockService: StockService,
     private cryptoService: CryptoService,
-  ) { }
+  ) {}
 
   // ==========================================
   // 🤖 CRON JOBS (Tâches automatisées)
@@ -31,11 +31,11 @@ export class WealthService {
     const isFirstDayOfMonth = today.getDate() === 1;
 
     for (const user of users) {
-      const { totalWealth } = await this.getWealthData(user.id);
+      const { totalWealth, distribution } = await this.getWealthData(user.id);
 
       if (totalWealth > 0) {
         const lastSnapshot = await this.prisma.historicalData.findFirst({
-          where: { userId: user.id },
+          where: { userId: user.id, category: null },
           orderBy: { date: 'desc' },
         });
 
@@ -47,6 +47,14 @@ export class WealthService {
 
           if (isFirstDayOfMonth || isSignificantChange) {
             await this.saveSnapshot(user.id, totalWealth, todayStr);
+            for (const dist of distribution) {
+              await this.saveSnapshot(
+                user.id,
+                dist.value,
+                todayStr,
+                dist.name.toLowerCase(),
+              );
+            }
           } else {
             console.log(
               `⏭️ Variation trop faible (${variationPercent.toFixed(3)}%) pour ${user.email}, snapshot sauté.`,
@@ -54,14 +62,27 @@ export class WealthService {
           }
         } else {
           await this.saveSnapshot(user.id, totalWealth, todayStr);
+          for (const dist of distribution) {
+            await this.saveSnapshot(
+              user.id,
+              dist.value,
+              todayStr,
+              dist.name.toLowerCase(),
+            );
+          }
         }
       }
     }
   }
 
-  private async saveSnapshot(userId: string, value: number, date: string) {
+  private async saveSnapshot(
+    userId: string,
+    value: number,
+    date: string,
+    category: string | null = null,
+  ) {
     const existing = await this.prisma.historicalData.findFirst({
-      where: { userId, date },
+      where: { userId, date, category },
     });
     if (existing) {
       await this.prisma.historicalData.update({
@@ -70,10 +91,12 @@ export class WealthService {
       });
     } else {
       await this.prisma.historicalData.create({
-        data: { date, value, userId },
+        data: { date, value, userId, category },
       });
     }
-    console.log(`✅ Snapshot enregistré pour l'utilisateur ${userId}`);
+    console.log(
+      `✅ Snapshot enregistré pour l'utilisateur ${userId}${category ? ` [${category}]` : ''}`,
+    );
   }
 
   // ==========================================
@@ -121,7 +144,8 @@ export class WealthService {
         } else if (a.category.toLowerCase() === 'pea') {
           const symbol = this.stockService.getYahooSymbol(a.name);
           const stockInfo = liveStockPrices[symbol]; // 🌟 Modification ici
-          if (stockInfo && liveQuantity > 0) dynamicValue = stockInfo.price * liveQuantity; // 🌟 Modification ici
+          if (stockInfo && liveQuantity > 0)
+            dynamicValue = stockInfo.price * liveQuantity; // 🌟 Modification ici
         }
 
         return { ...a, dynamicValue, liveQuantity };
@@ -138,8 +162,9 @@ export class WealthService {
     );
     let formattedHistory = sortedHistory.map((h) => ({
       date: new Date(h.date).toLocaleDateString('fr-FR', {
-        day: 'numeric',
-        month: 'short',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
       }),
       value: h.value,
     }));
@@ -150,8 +175,9 @@ export class WealthService {
       // On s'assure que le graphique termine TOUJOURS par la valeur exacte à l'instant T
       const todayLabel = "Aujourd'hui";
       const todayDateStr = new Date().toLocaleDateString('fr-FR', {
-        day: 'numeric',
-        month: 'short',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
       });
       const lastPoint = formattedHistory[formattedHistory.length - 1];
 
@@ -222,10 +248,11 @@ export class WealthService {
         if (category.toLowerCase() === 'crypto') {
           currentPrice = livePrices[a.name.toLowerCase()]?.eur || null;
         } else if (category.toLowerCase() === 'pea') {
-          const stockInfo = livePrices[this.stockService.getYahooSymbol(a.name)];
+          const stockInfo =
+            livePrices[this.stockService.getYahooSymbol(a.name)];
           if (stockInfo) {
             currentPrice = stockInfo.price; // 🌟 On récupère le prix
-            displayName = stockInfo.name;   // 🌟 On récupère le vrai nom
+            displayName = stockInfo.name; // 🌟 On récupère le vrai nom
           }
         }
 
@@ -237,7 +264,7 @@ export class WealthService {
 
         return {
           id: a.id,
-          name: a.name,             // Ticker technique (ex: MC.PA)
+          name: a.name, // Ticker technique (ex: MC.PA)
           displayName: displayName, // 🌟 Vrai nom pour l'affichage (ex: LVMH)
           quantity: liveQuantity,
           currentPrice,
@@ -260,6 +287,50 @@ export class WealthService {
       return map;
     }, {});
 
+    // 🌟 NOUVEAU : Récupération de l'historique de la catégorie
+    const history = await this.prisma.historicalData.findMany({
+      where: { userId, category: category.toLowerCase() },
+      orderBy: { date: 'asc' },
+    });
+
+    const sortedHistory = [...history].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    );
+    const formattedHistory = sortedHistory.map((h) => ({
+      date: new Date(h.date).toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }),
+      value: h.value,
+    }));
+
+    if (formattedHistory.length > 0) {
+      const todayLabel = "Aujourd'hui";
+      const todayDateStr = new Date().toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
+      const lastPoint = formattedHistory[formattedHistory.length - 1];
+
+      if (lastPoint.date !== todayDateStr) {
+        formattedHistory.push({
+          date: todayDateStr,
+          value: totalCategoryValue,
+        });
+      } else {
+        lastPoint.value = totalCategoryValue;
+      }
+      formattedHistory[formattedHistory.length - 1].date = todayLabel;
+    } else {
+      const todayLabel = "Aujourd'hui";
+      formattedHistory.push({
+        date: todayLabel,
+        value: totalCategoryValue,
+      });
+    }
+
     return {
       title: category.toUpperCase(),
       totalCategoryValue,
@@ -269,6 +340,7 @@ export class WealthService {
           ? ((totalCategoryValue - totalInvested) / totalInvested) * 100
           : 0,
       assets: mappedAssets,
+      historicalData: formattedHistory, // 🌟 NOUVEAU
       transactions: rawTransactions.map((tx) => ({
         id: tx.id,
         date: tx.date.toISOString(),
@@ -277,6 +349,8 @@ export class WealthService {
         quantity: tx.quantity,
         assetName: displayNameMap[tx.asset.name] || tx.asset.name,
         label: (tx as any).label || null,
+        createdAt: tx.createdAt?.toISOString() || null,
+        updatedAt: tx.updatedAt?.toISOString() || null,
       })),
     };
   }
@@ -288,7 +362,7 @@ export class WealthService {
   async addTransactionData(body: CreateTransactionDto, userId: string) {
     const { type, category, asset, quantity, amount, date, label } = body;
     const parsedAmount = Number(amount);
-    const parsedQuantity = Number(quantity) || 0
+    const parsedQuantity = Number(quantity) || 0;
 
     const isSale =
       type.toLowerCase() === 'vente' || type.toLowerCase() === 'retrait';
@@ -467,12 +541,225 @@ export class WealthService {
       if (deltaHistory !== 0) {
         const txDateStr = transaction.date.toISOString().split('T')[0];
         await tx.historicalData.updateMany({
-          where: { userId, date: { gte: txDateStr } },
+          where: { userId, date: { gte: txDateStr }, category: null },
+          data: { value: { increment: deltaHistory } },
+        });
+        await tx.historicalData.updateMany({
+          where: {
+            userId,
+            date: { gte: txDateStr },
+            category: transaction.category.toLowerCase(),
+          },
           data: { value: { increment: deltaHistory } },
         });
       }
 
       return { success: true };
+    });
+  }
+
+  async updateTransaction(
+    id: string,
+    body: CreateTransactionDto,
+    userId: string,
+  ) {
+    // La méthode la plus sûre est d'annuler l'ancienne transaction puis d'appliquer les nouvelles valeurs.
+    // Pour conserver le même ID et la date de création, on fait tout dans une transaction Prisma.
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. Récupération de l'ancienne transaction
+      const oldTx = await tx.transaction.findFirst({
+        where: { id, userId },
+        include: { asset: true },
+      });
+      if (!oldTx) throw new NotFoundException('Transaction non trouvée');
+
+      const oldAsset = oldTx.asset;
+      let revertedQuantity = oldAsset.quantity || 0;
+      let revertedTotalValue = oldAsset.totalValue || 0;
+      let deltaHistoryRevert = 0;
+
+      // Annulation de l'ancienne transaction
+      if (
+        ['achat', 'dépôt', 'in', 'intérêts', 'dividendes'].includes(
+          oldTx.type.toLowerCase(),
+        )
+      ) {
+        revertedQuantity -= oldTx.quantity || 0;
+        revertedTotalValue -= oldTx.amount;
+        deltaHistoryRevert = -oldTx.amount;
+      } else if (
+        ['vente', 'retrait', 'out'].includes(oldTx.type.toLowerCase())
+      ) {
+        revertedQuantity += oldTx.quantity || 0;
+        let capitalToRestore = oldTx.amount;
+        const currentAssetQuantity = oldAsset.quantity || 0;
+        if (
+          ['crypto', 'pea'].includes(oldAsset.category.toLowerCase()) &&
+          currentAssetQuantity > 0
+        ) {
+          const currentPru = oldAsset.totalValue / currentAssetQuantity;
+          capitalToRestore = (oldTx.quantity || 0) * currentPru;
+        }
+        revertedTotalValue += capitalToRestore;
+        deltaHistoryRevert = oldTx.amount;
+      } else if (
+        oldTx.type.toLowerCase() === 'ajustement' ||
+        oldTx.type.toLowerCase() === 'update_balance'
+      ) {
+        revertedTotalValue -= oldTx.amount;
+        deltaHistoryRevert = -oldTx.amount;
+      }
+
+      // Mise à jour temporaire de l'ancien actif (si l'actif a changé de nom on gère après)
+      await tx.asset.update({
+        where: { id: oldAsset.id },
+        data: {
+          quantity: Math.max(0, revertedQuantity),
+          totalValue: Math.max(0, revertedTotalValue),
+        },
+      });
+
+      // Recalcul historique inverse
+      if (deltaHistoryRevert !== 0) {
+        const txDateStr = oldTx.date.toISOString().split('T')[0];
+        await tx.historicalData.updateMany({
+          where: { userId, date: { gte: txDateStr }, category: null },
+          data: { value: { increment: deltaHistoryRevert } },
+        });
+        await tx.historicalData.updateMany({
+          where: {
+            userId,
+            date: { gte: txDateStr },
+            category: oldTx.category.toLowerCase(),
+          },
+          data: { value: { increment: deltaHistoryRevert } },
+        });
+      }
+
+      // 2. Application de la nouvelle transaction
+      const { type, category, asset, quantity, amount, date, label } = body;
+      const parsedAmount = Number(amount);
+      const parsedQuantity = Number(quantity) || 0;
+
+      const isSale =
+        type.toLowerCase() === 'vente' || type.toLowerCase() === 'retrait';
+      const isUpdate =
+        type.toLowerCase() === 'update_balance' ||
+        type.toLowerCase() === 'ajustement';
+      const isInterest =
+        type.toLowerCase() === 'intérêts' ||
+        type.toLowerCase() === 'dividendes';
+
+      let currentAsset = await tx.asset.findFirst({
+        where: {
+          name: { equals: asset, mode: 'insensitive' },
+          category: category.toLowerCase(),
+          userId,
+        },
+      });
+
+      let newQuantity = parsedQuantity;
+      let newTotalValue = parsedAmount;
+      let transactionAmount = parsedAmount;
+      let transactionType = type;
+
+      if (currentAsset) {
+        const aq = currentAsset.quantity || 0;
+        const av = currentAsset.totalValue || 0;
+
+        if (isUpdate) {
+          const diff = parsedAmount - av;
+          newTotalValue = parsedAmount;
+          newQuantity = aq;
+          transactionAmount = Math.abs(diff);
+          transactionType = diff > 0 ? 'dépôt' : 'retrait';
+        } else if (isInterest) {
+          newTotalValue = av + parsedAmount;
+          newQuantity = aq;
+        } else if (!isSale) {
+          newQuantity = aq + parsedQuantity;
+          newTotalValue = av + parsedAmount;
+        } else {
+          if (['crypto', 'pea'].includes(category.toLowerCase())) {
+            const currentPRU = aq > 0 ? av / aq : 0;
+            const capitalRemoved = parsedQuantity * currentPRU;
+            newQuantity = Math.max(0, aq - parsedQuantity);
+            newTotalValue = Math.max(0, av - capitalRemoved);
+          } else {
+            newQuantity = Math.max(0, aq - parsedQuantity);
+            newTotalValue = Math.max(0, av - parsedAmount);
+          }
+        }
+        if (newQuantity <= 0.000001) {
+          newQuantity = 0;
+          newTotalValue = 0;
+        }
+
+        currentAsset = await tx.asset.update({
+          where: { id: currentAsset.id },
+          data: { quantity: newQuantity, totalValue: newTotalValue },
+        });
+      } else {
+        currentAsset = await tx.asset.create({
+          data: {
+            name: asset,
+            category: category.toLowerCase(),
+            quantity: isSale ? 0 : parsedQuantity,
+            totalValue: isSale ? 0 : parsedAmount,
+            user: { connect: { id: userId } },
+          },
+        });
+        if (isUpdate) {
+          transactionAmount = parsedAmount;
+          transactionType = 'dépôt';
+        }
+      }
+
+      // Mise à jour de la transaction (conserve createdAt)
+      await tx.transaction.update({
+        where: { id },
+        data: {
+          type: transactionType,
+          category: category.toLowerCase(),
+          amount: transactionAmount,
+          quantity: isUpdate ? 0 : parsedQuantity,
+          date: new Date(date),
+          label: label || null,
+          asset: { connect: { id: currentAsset.id } },
+        },
+      });
+
+      // Recalcul historique pour la nouvelle date
+      let deltaHistoryApply = 0;
+      if (
+        ['achat', 'dépôt', 'in', 'intérêts', 'dividendes'].includes(
+          transactionType.toLowerCase(),
+        )
+      ) {
+        deltaHistoryApply = transactionAmount;
+      } else if (
+        ['vente', 'retrait', 'out'].includes(transactionType.toLowerCase())
+      ) {
+        deltaHistoryApply = -transactionAmount;
+      }
+
+      if (deltaHistoryApply !== 0) {
+        const newTxDateStr = new Date(date).toISOString().split('T')[0];
+        await tx.historicalData.updateMany({
+          where: { userId, date: { gte: newTxDateStr }, category: null },
+          data: { value: { increment: deltaHistoryApply } },
+        });
+        await tx.historicalData.updateMany({
+          where: {
+            userId,
+            date: { gte: newTxDateStr },
+            category: category.toLowerCase(),
+          },
+          data: { value: { increment: deltaHistoryApply } },
+        });
+      }
+
+      return { success: true, message: 'Opération modifiée avec succès !' };
     });
   }
 

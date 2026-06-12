@@ -18,7 +18,7 @@ export class AuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const token = this.extractTokenFromHeader(request);
+    const token = this.extractToken(request);
 
     if (!token) {
       throw new UnauthorizedException('Token manquant');
@@ -37,7 +37,12 @@ export class AuthGuard implements CanActivate {
     return true;
   }
 
-  private extractTokenFromHeader(request: Request): string | undefined {
+  private extractToken(request: Request): string | undefined {
+    // 1. Cherche le token dans les cookies HttpOnly
+    if (request.cookies && request.cookies['wealth_token']) {
+      return request.cookies['wealth_token'];
+    }
+    // 2. Fallback optionnel (pour les tests API avec Postman par exemple)
     const [type, token] = request.headers.authorization?.split(' ') ?? [];
     return type === 'Bearer' ? token : undefined;
   }

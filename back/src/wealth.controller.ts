@@ -3,6 +3,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Body,
   UseGuards,
   Request,
@@ -111,6 +112,19 @@ export class WealthController {
   ) {
     const userId = req.user.sub || req.user.id;
     return this.wealthService.deleteTransaction(id, userId || '');
+  }
+
+  /**
+   * Met à jour une transaction existante
+   */
+  @Put('transaction/:id')
+  async updateTransaction(
+    @Param('id') id: string,
+    @Body() body: CreateTransactionDto,
+    @Request() req: RequestWithUser,
+  ) {
+    const userId = req.user.sub || req.user.id;
+    return this.wealthService.updateTransaction(id, body, userId || '');
   }
 
   /**

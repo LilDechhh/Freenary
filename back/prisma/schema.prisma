@@ -57,13 +57,14 @@ model HistoricalData {
   id        String   @id @default(uuid())
   date      String   
   value     Float      
+  category  String?
   assetId   String?  
   asset     Asset?   @relation(fields: [assetId], references: [id], onDelete: Cascade)  
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, date])
-
+  @@unique([userId, date, category])
 }
 
 model Transaction {
@@ -75,6 +76,9 @@ model Transaction {
   quantity  Float?   
   price     Float?   
   label     String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
   
   assetId   String   
   asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)

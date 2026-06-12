@@ -11,6 +11,7 @@ interface AddTransactionModalProps {
   onSuccess: () => void;
   defaultCategory?: string;
   preselectedAsset?: { ticker: string; name: string } | null;
+  transactionToEdit?: any; // NEW
 }
 
 export default function AddTransactionModal({
@@ -19,6 +20,7 @@ export default function AddTransactionModal({
   onSuccess,
   defaultCategory,
   preselectedAsset,
+  transactionToEdit,
 }: AddTransactionModalProps) {
   const [category, setCategory] = useState(defaultCategory || "crypto");
   const [type, setType] = useState("achat");
@@ -35,21 +37,33 @@ export default function AddTransactionModal({
 
   useEffect(() => {
     if (isOpen) {
-      if (defaultCategory) setCategory(defaultCategory);
-      if (preselectedAsset) {
-        setAsset(preselectedAsset.ticker);
-        setAssetName(preselectedAsset.name);
+      if (transactionToEdit) {
+        setCategory(transactionToEdit.category || "crypto");
+        setType(transactionToEdit.type || "achat");
+        setAmount(transactionToEdit.amount?.toString() || "");
+        setQuantity(transactionToEdit.quantity?.toString() || "");
+        setAsset(transactionToEdit.assetName || ""); // Dans la V1 on triche avec name
+        setAssetName(transactionToEdit.assetName || "");
+        setDate(new Date(transactionToEdit.date).toISOString().split("T")[0]);
+        setLabel(transactionToEdit.label || "");
       } else {
-        setAsset("");
-        setAssetName("");
+        if (defaultCategory) setCategory(defaultCategory);
+        if (preselectedAsset) {
+          setAsset(preselectedAsset.ticker);
+          setAssetName(preselectedAsset.name);
+        } else {
+          setAsset("");
+          setAssetName("");
+        }
+        setType("achat");
+        setAmount("");
+        setQuantity("");
+        setDate(new Date().toISOString().split("T")[0]);
+        setLabel("");
       }
-      setType("achat");
-      setAmount("");
-      setQuantity("");
-      setDate(new Date().toISOString().split("T")[0]);
       setSuggestions([]);
     }
-  }, [isOpen, defaultCategory, preselectedAsset]);
+  }, [isOpen, defaultCategory, preselectedAsset, transactionToEdit]);
 
   const isFixedAsset = [
     "epargne",
@@ -59,7 +73,8 @@ export default function AddTransactionModal({
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
-      if (assetName.length >= 2 && !isFixedAsset && !asset) {
+      // Evite la recherche si on édite déjà avec un actif défini
+      if (assetName.length >= 2 && !isFixedAsset && !asset && !transactionToEdit) {
         if (category === "pea") fetchSuggestions("search/stocks", assetName);
         else if (category === "crypto")
           fetchSuggestions("search/crypto", assetName);
@@ -68,16 +83,15 @@ export default function AddTransactionModal({
       }
     }, 400);
     return () => clearTimeout(delayDebounceFn);
-  }, [assetName, category, isFixedAsset, asset]);
+  }, [assetName, category, isFixedAsset, asset, transactionToEdit]);
 
   const fetchSuggestions = async (endpoint: string, query: string) => {
     setIsSearching(true);
     try {
-      const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/wealth/${endpoint}?q=${query}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         },
       );
       const data = await res.json();
@@ -93,35 +107,34 @@ export default function AddTransactionModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    const token = localStorage.getItem("wealth_token");
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
 
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            category,
-            type,
-            asset: asset || assetName,
-            quantity: isFixedAsset ? 0 : quantity ? parseFloat(quantity) : 0,
-            amount: parseFloat(amount),
-            date,
-            label: label || undefined,
-          }),
+      const method = transactionToEdit ? "PUT" : "POST";
+      const url = transactionToEdit
+        ? `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction/${transactionToEdit.id}`
+        : `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction`;
+
+      const response = await fetch(url, {
+        method,
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          category,
+          type,
+          asset: asset || assetName,
+          quantity: isFixedAsset ? 0 : quantity ? parseFloat(quantity) : 0,
+          amount: parseFloat(amount),
+          date,
+          label: label || undefined,
+        }),
+      });
 
       if (response.ok) {
-        toast.success("Opération enregistrée !");
+        toast.success(
+          transactionToEdit ? "Opération modifiée !" : "Opération enregistrée !"
+        );
         onClose();
         resetForm();
         onSuccess();
@@ -149,70 +162,74 @@ export default function AddTransactionModal({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm"
           />
+          
           <motion.div
-            initial={{ y: 50, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 50, opacity: 0 }}
-            className="w-full sm:max-w-md bg-card rounded-t-[2rem] sm:rounded-[2rem] shadow-premium border border-border relative z-10 max-h-[90vh] flex flex-col"
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="bg-card w-full max-w-md rounded-[2rem] shadow-2xl relative z-10 border border-border"
           >
-            <div className="shrink-0 border-b border-border px-6 py-5 flex items-center justify-between">
+            <div className="px-8 pt-8 pb-4 flex justify-between items-start">
               <div>
-                <h2 className="text-xl text-foreground font-light tracking-tight">
-                  Nouvelle opération
+                <h2 className="text-2xl font-bold text-foreground mb-1 tracking-tight">
+                  {transactionToEdit ? "Modifier l'opération" : "Nouvelle opération"}
                 </h2>
-                <p className="text-xs text-muted-foreground font-light">
-                  Mettez à jour votre patrimoine
+                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
+                  {transactionToEdit ? "Édition Manuelle" : "Saisie Manuelle"}
                 </p>
               </div>
               <button
                 onClick={onClose}
-                className="w-9 h-9 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors"
+                className="w-8 h-8 bg-muted rounded-full flex items-center justify-center text-muted-foreground hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
               >
-                <X className="w-5 h-5 text-muted-foreground" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto">
+            <div className="p-8 space-y-6 max-h-[75vh] overflow-y-auto">
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
-                      Catégorie
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
+                      Poche
                     </label>
                     <select
                       value={category}
                       onChange={(e) => {
                         setCategory(e.target.value);
-                        resetForm();
+                        if (!transactionToEdit) resetForm();
                       }}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none appearance-none cursor-pointer"
+                      disabled={!!transactionToEdit}
+                      className="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-primary focus:ring-1 focus:ring-primary appearance-none cursor-pointer disabled:opacity-50"
                     >
                       <option value="compte-courant">Compte Courant</option>
-                      <option value="crypto">Crypto-actifs</option>
-                      <option value="pea">Bourse (PEA/CTO)</option>
+                      <option value="crypto">Crypto</option>
+                      <option value="pea">PEA</option>
                       <option value="epargne">Épargne</option>
                       <option value="epargne-salariale">Ép. Salariale</option>
                     </select>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
-                      Type
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
+                      Direction
                     </label>
                     <select
                       value={type}
                       onChange={(e) => setType(e.target.value)}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none appearance-none cursor-pointer"
+                      className="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-primary focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
                     >
-                      <option value="achat">Dépôt / Achat</option>
-                      <option value="vente">Retrait / Vente</option>
+                      <option value="achat">Achat / Dépôt</option>
+                      <option value="vente">Vente / Retrait</option>
                       <option value="intérêts">
                         {isFixedAsset ? "Versement Intérêts" : "Dividendes"}
                       </option>
@@ -224,15 +241,16 @@ export default function AddTransactionModal({
                     </select>
                   </div>
                 </div>
-                {category === "epargne-salariale" && (
-                  <div className="space-y-1.5 mt-2">
-                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
-                      Motif / Origine du versement
-                    </label>
+
+                <div>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
+                    Libellé de l&apos;opération
+                  </label>
+                  {category === "epargne-salariale" ? (
                     <select
                       value={label}
                       onChange={(e) => setLabel(e.target.value)}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light focus:ring-2 focus:ring-primary/20 outline-none appearance-none cursor-pointer"
+                      className="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-primary focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
                     >
                       <option value="">Sélectionner un motif (Optionnel)</option>
                       <option value="Participation">Participation</option>
@@ -241,12 +259,20 @@ export default function AddTransactionModal({
                       <option value="Abondement">Abondement</option>
                       <option value="Arbitrage">Arbitrage / Fusion de fonds</option>
                     </select>
-                  </div>
-                )}
+                  ) : (
+                    <input
+                      type="text"
+                      value={label}
+                      onChange={(e) => setLabel(e.target.value)}
+                      placeholder="Ex: Salaire, Virement..."
+                      className="w-full h-12 px-4 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
+                    />
+                  )}
+                </div>
 
-                <div className="space-y-1.5 relative">
-                  <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
-                    {isFixedAsset ? "Nom du compte" : "Nom de l'actif"}
+                <div className="relative">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
+                    {isFixedAsset ? "Nom du compte" : "Actif concerné"}
                   </label>
                   {category === "epargne" ? (
                     <select
@@ -255,7 +281,8 @@ export default function AddTransactionModal({
                         setAssetName(e.target.value);
                         setAsset("");
                       }}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none cursor-pointer"
+                      disabled={!!transactionToEdit}
+                      className="w-full h-12 px-4 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50 disabled:opacity-50"
                       required
                     >
                       <option value="">Choisir un livret...</option>
@@ -276,31 +303,35 @@ export default function AddTransactionModal({
                         setAssetName(e.target.value);
                         setAsset(e.target.value);
                       }}
+                      disabled={!!transactionToEdit}
                       placeholder={
                         category === "compte-courant"
                           ? "Ex: BNP, Boursorama..."
                           : "Ex: PEE Amundi..."
                       }
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
+                      className="w-full h-12 px-4 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50 disabled:opacity-50"
                     />
                   ) : (
                     <div className="relative">
-                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
+                      <Search className="absolute left-0 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <input
                         type="text"
                         required
                         value={assetName}
                         onChange={(e) => setAssetName(e.target.value)}
-                        onFocus={() => setShowSuggestions(true)}
+                        onFocus={() => {
+                          if (!transactionToEdit) setShowSuggestions(true);
+                        }}
+                        disabled={!!transactionToEdit}
                         placeholder={
                           category === "pea"
-                            ? "Rechercher Apple, LVMH..."
-                            : "Bitcoin, Ethereum..."
+                            ? "Ex: Apple, LVMH..."
+                            : "Ex: Bitcoin, Ethereum..."
                         }
-                        className="w-full h-12 pl-11 pr-10 bg-muted border-none rounded-xl text-foreground font-light outline-none"
+                        className="w-full h-12 pl-6 pr-10 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50 disabled:opacity-50"
                       />
                       {isSearching && (
-                        <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary animate-spin" />
+                        <Loader2 className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-primary animate-spin" />
                       )}
                     </div>
                   )}
@@ -308,12 +339,13 @@ export default function AddTransactionModal({
                   <AnimatePresence>
                     {showSuggestions &&
                       suggestions.length > 0 &&
-                      !isFixedAsset && (
+                      !isFixedAsset &&
+                      !transactionToEdit && (
                         <motion.div
                           initial={{ opacity: 0, y: -10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0 }}
-                          className="absolute z-20 w-full mt-2 bg-card border border-border rounded-2xl shadow-2xl max-h-56 overflow-y-auto overflow-x-hidden"
+                          className="absolute z-20 w-full mt-2 bg-card border border-border rounded-xl shadow-2xl max-h-56 overflow-y-auto overflow-x-hidden"
                         >
                           {suggestions.map((s, i) => (
                             <div
@@ -323,7 +355,7 @@ export default function AddTransactionModal({
                                 setAssetName(s.name);
                                 setShowSuggestions(false);
                               }}
-                              className="p-4 hover:bg-primary/5 cursor-pointer flex justify-between items-center border-b border-border last:border-none group"
+                              className="p-3 hover:bg-muted/50 cursor-pointer flex justify-between items-center border-b border-border last:border-none group"
                             >
                               <div className="flex items-center gap-3">
                                 {s.thumb && (
@@ -334,10 +366,10 @@ export default function AddTransactionModal({
                                   />
                                 )}
                                 <div className="flex flex-col">
-                                  <span className="text-sm font-medium">
+                                  <span className="text-sm font-semibold">
                                     {s.name}
                                   </span>
-                                  <span className="text-[10px] text-muted-foreground uppercase">
+                                  <span className="text-[10px] text-muted-foreground uppercase font-bold">
                                     {s.ticker ? `${s.ticker} • ` : ""}
                                     {s.exchDisp || s.symbol}
                                   </span>
@@ -356,8 +388,8 @@ export default function AddTransactionModal({
                 <div
                   className={`grid ${isFixedAsset ? "grid-cols-1" : "grid-cols-2 gap-4"}`}
                 >
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
                       Date
                     </label>
                     <input
@@ -365,12 +397,12 @@ export default function AddTransactionModal({
                       required
                       value={date}
                       onChange={(e) => setDate(e.target.value)}
-                      className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
+                      className="w-full h-12 px-4 bg-muted/50 border border-border rounded-xl text-sm font-semibold outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     />
                   </div>
                   {!isFixedAsset && (
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
+                    <div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
                         Quantité
                       </label>
                       <input
@@ -381,41 +413,43 @@ export default function AddTransactionModal({
                         placeholder="0.00"
                         value={quantity}
                         onChange={(e) => setQuantity(e.target.value)}
-                        className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
+                        className="w-full h-12 px-4 bg-transparent border-b-2 border-border text-foreground font-semibold outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
                       />
                     </div>
                   )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest ml-1">
+                <div>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] ml-1 mb-2 block">
                     {type === "update_balance"
                       ? "Nouveau Solde Total Actuel (€)"
-                      : "Montant de l'opération (€)"}
+                      : "Montant (€)"}
                   </label>
                   <input
                     type="number"
                     min="0"
                     step="any"
                     required
-                    placeholder="Ex: 1500"
+                    placeholder="0.00"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className="w-full h-12 px-4 bg-muted border-none rounded-xl text-foreground font-light outline-none"
+                    className="w-full bg-transparent border-b-2 border-border py-2 text-foreground font-bold tracking-tight text-4xl outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/30"
                   />
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full h-14 mt-4 bg-primary text-primary-foreground rounded-2xl transition-all hover:opacity-90 font-medium tracking-wide disabled:opacity-50 shadow-premium active:scale-[0.98]"
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-5 h-5 animate-spin mx-auto" />
-                  ) : (
-                    "Valider"
-                  )}
-                </button>
+                <div className="pt-4">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full h-14 bg-foreground text-card rounded-xl font-bold text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg shadow-slate-900/10 tracking-wide disabled:opacity-50 disabled:hover:scale-100 flex items-center justify-center"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      transactionToEdit ? "Sauvegarder les modifications" : "Valider l'opération"
+                    )}
+                  </button>
+                </div>
               </form>
             </div>
           </motion.div>

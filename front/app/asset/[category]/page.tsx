@@ -72,12 +72,11 @@ export default function CategoryDetail() {
   ].includes(category as string);
 
   const fetchDetails = useCallback(async () => {
-    const token = localStorage.getItem("wealth_token");
-    if (!category || !token) return;
+    if (!category) return;
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/wealth/${category.toString().toLowerCase()}`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        { credentials: "include" },
       );
       if (!res.ok) throw new Error("Erreur serveur");
       setData(await res.json());
@@ -95,10 +94,9 @@ export default function CategoryDetail() {
   const handleDelete = async (id: string) => {
     if (!confirm("Supprimer cette transaction ?")) return;
     try {
-      const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction/${id}`,
-        { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+        { method: "DELETE", credentials: "include" },
       );
       if (res.ok) {
         toast.success("Supprimée !");
@@ -116,14 +114,13 @@ export default function CategoryDetail() {
     if (!assetToUpdate) return;
     setIsUpdating(true);
     try {
-      const token = localStorage.getItem("wealth_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/wealth/transaction`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             category: category as string,

@@ -11,70 +11,100 @@
   --color-card-foreground: var(--card-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-brand: var(--primary);
+  /* Alias pour correspondre au HTML */
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --color-success: var(--success);
-  --color-destructive: var(--destructive);
+  --color-danger: var(--danger);
+  --color-destructive: var(--danger);
+  /* Pour la compatibilité avec tes anciens composants Shadcn */
 
-  /* 🌟 CORRECTION ICI : Ajout de la couleur "ring" pour les focus/contours */
   --color-ring: var(--ring);
+
+  /* Couleurs de ta DA pour le graphique Donut */
+  --color-donut-pink: #ec4899;
+  --color-donut-purple: #8b5cf6;
+  --color-donut-blue: #3b82f6;
+  --color-donut-orange: #f59e0b;
+  --color-donut-green: #10b981;
 
   /* Ombre premium dynamique */
   --shadow-premium: var(--shadow-premium-value);
 }
 
 :root {
-  --radius: 1.25rem;
+  --radius: 1.5rem;
+  /* Base un peu plus arrondie */
 
-  /* Mode Clair : "Warm Sand & Amber" */
-  --background: oklch(0.98 0.01 80);
-  --foreground: oklch(0.2 0.02 80);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.02 80);
-  --primary: oklch(0.65 0.18 85);
-  --primary-foreground: oklch(0.98 0.01 80);
-  --muted: oklch(0.94 0.02 80);
-  --muted-foreground: oklch(0.55 0.02 80);
-  --border: oklch(0.9 0.02 80);
+  /* Mode Clair : Clean, Slate & Indigo */
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --border: #e2e8f0;
 
-  --success: oklch(0.65 0.15 145);
-  --destructive: oklch(0.6 0.2 25);
+  --success: #059669;
+  --danger: #e11d48;
 
-  /* 🌟 CORRECTION ICI : Le ring prend la même couleur que le primary (Ambre) */
-  --ring: oklch(0.65 0.18 85);
+  --ring: #4f46e5;
 
-  --shadow-premium-value: 0 10px 40px -10px oklch(0.65 0.18 85 / 8%);
+  /* L'ombre ultra-douce de ton prototype */
+  --shadow-premium-value: 0 20px 40px -15px rgba(0, 0, 0, 0.05);
 }
 
 .dark {
-  /* Mode Sombre : "Deep Amber" */
-  --background: oklch(0.12 0.015 80);
-  --foreground: oklch(0.96 0.01 80);
-  --card: oklch(0.18 0.02 80);
-  --card-foreground: oklch(0.96 0.01 80);
-  --primary: oklch(0.7 0.18 85);
-  --primary-foreground: oklch(0.12 0.015 80);
-  --muted: oklch(0.22 0.02 80);
-  --muted-foreground: oklch(0.65 0.02 80);
-  --border: oklch(1 0 0 / 12%);
+  /* Mode Sombre : Deep Slate & Indigo */
+  --background: #020617;
+  /* slate-950 */
+  --foreground: #f8fafc;
+  /* slate-50 */
+  --card: #0f172a;
+  /* slate-900 */
+  --card-foreground: #f8fafc;
+  --primary: #6366f1;
+  /* indigo-500 (plus clair pour la lisibilité sur fond noir) */
+  --primary-foreground: #ffffff;
+  --muted: #1e293b;
+  /* slate-800 */
+  --muted-foreground: #94a3b8;
+  /* slate-400 */
+  --border: #1e293b;
+  /* slate-800 */
 
-  --success: oklch(0.75 0.16 145);
-  --destructive: oklch(0.6 0.2 25);
+  --success: #10b981;
+  --danger: #f43f5e;
 
-  --ring: oklch(0.7 0.18 85);
+  --ring: #6366f1;
 
-  /* 🌟 MODIFICATION ICI : 
-     On passe sur une ombre classique (noir), plus petite, et sans le côté "néon" */
-  --shadow-premium-value: 0 4px 20px -2px oklch(0 0 0 / 25%);
+  /* L'ombre ajustée pour le dark mode */
+  --shadow-premium-value: 0 20px 40px -15px rgba(0, 0, 0, 0.4);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
     overscroll-behavior-y: none;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Utilitaires spécifiques à ta nouvelle DA */
+@layer utilities {
+  .dotted-leader {
+    @apply grow border-b-2 border-dotted border-slate-300 mx-3 relative -top-1.5 transition-colors;
+  }
+
+  .dark .dotted-leader {
+    @apply border-slate-700;
   }
 }
